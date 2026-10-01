@@ -1,0 +1,20 @@
+node_modules/
+.env
+.env.*
+!.env.example
+.atl/
+*.log
+data/
+.playwright-mcp/
+aprendizaje/
+cosmos/
+AGENTS.md
+
+# Frontend (ASTROAM React app)
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+# TypeScript incremental build info
+*.tsbuildinfo
