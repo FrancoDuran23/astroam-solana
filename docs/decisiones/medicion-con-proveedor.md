@@ -12,7 +12,7 @@ tiene que activar y tener todo su tráfico pasando por nosotros.
 
 **Decisión.** Somos un revendedor liviano: gestionamos la eSIM por API, pero
 la medición y el corte los hace el proveedor. Nos quedamos con lo que es
-nuestro: el canal de Stellar, los vales y el reembolso.
+nuestro: el canal de pago on-chain, los vales y el reembolso.
 
 **Consecuencias.**
 
@@ -39,4 +39,4 @@ nuestro: el canal de Stellar, los vales y el reembolso.
   operar, y empeora la experiencia del viajero.
 - **Solo sistema de pago** (otro vende la eSIM e integra nuestro canal): lo
   más simple de operar, pero depende de conseguir socios. Queda como camino
-  B2B a futuro, por ejemplo con wallets del ecosistema Stellar.
+  B2B a futuro, por ejemplo con wallets que ofrezcan la eSIM dentro de su app.

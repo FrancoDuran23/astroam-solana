@@ -18,7 +18,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createChannelMutex, type ChannelMutex } from "../shared/mutex.ts";
-import { sanitizeNetworkForFilename } from "../shared/stellar/network.ts";
+import { sanitizeNetworkForFilename } from "../shared/network.ts";
 
 export type EsimClosingStep =
   | "defund_solicitado"

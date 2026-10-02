@@ -11,8 +11,8 @@ import {
 const canonicalMessage1 = {
   version: 1,
   sessionId: "sess_01JBQ7X3M2",
-  channel: "C".padEnd(56, "A"),
-  network: "stellar:testnet",
+  channel: "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+  network: "monad:testnet",
   asset: "USDC",
   cumulativeBytes: 1048576,
   cumulativeAmount: "125000",
@@ -52,13 +52,13 @@ test("message1Schema rejects a negative cumulativeBytes (VE-R4)", () => {
   assert.equal(result.success, false);
 });
 
-test("message1Schema rejects an unknown network", () => {
-  const result = message1Schema.safeParse({ ...canonicalMessage1, network: "stellar:mainnet" });
+test("message1Schema rejects a network that is not <chain>:<name>", () => {
+  const result = message1Schema.safeParse({ ...canonicalMessage1, network: "monad" });
   assert.equal(result.success, false);
 });
 
-test("message1Schema rejects a channel of invalid length", () => {
-  const result = message1Schema.safeParse({ ...canonicalMessage1, channel: "C123" });
+test("message1Schema rejects a channel id with characters no rail produces", () => {
+  const result = message1Schema.safeParse({ ...canonicalMessage1, channel: "0x5FbD/../etc" });
   assert.equal(result.success, false);
 });
 
@@ -106,12 +106,12 @@ const canonicalSigned = {
   version: 1,
   status: "signed",
   sessionId: "sess_01JBQ7X3M2",
-  channel: "C".padEnd(56, "A"),
+  channel: "0x5FbDB2315678afecb367f032d93F642f64180aa3",
   voucher: {
     cumulativeAmount: "125000",
     signature: "a".repeat(128),
-    commitmentPubkey: "b".repeat(64),
-    network: "stellar:testnet",
+    commitmentPubkey: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8".slice(2),
+    network: "monad:testnet",
   },
   meterReadingId: "mr_000042",
   reused: false,
@@ -123,7 +123,7 @@ test("message2SignedSchema accepts the canonical signed payload (VE-R7)", () => 
   assert.equal(message2SignedSchema.safeParse(canonicalSigned).success, true);
 });
 
-test("message2SignedSchema rejects a signature that is not 128 hex chars", () => {
+test("message2SignedSchema rejects a signature that is not 64 or 65 bytes of hex", () => {
   const bad = { ...canonicalSigned, voucher: { ...canonicalSigned.voucher, signature: "a".repeat(127) } };
   assert.equal(message2SignedSchema.safeParse(bad).success, false);
 });
@@ -132,7 +132,7 @@ const canonicalUnsigned = {
   version: 1,
   status: "unsigned",
   sessionId: "sess_01JBQ7X3M2",
-  channel: "C".padEnd(56, "A"),
+  channel: "0x5FbDB2315678afecb367f032d93F642f64180aa3",
   reason: "channel_exhausted",
   retryable: false,
   remaining: "0",
@@ -165,7 +165,7 @@ test("message2UnsignedSchema accepts retryable: true only for a retryable reason
     ...canonicalUnsigned,
     reason: "upstream_unavailable",
     retryable: true,
-    detail: "Soroban RPC unreachable",
+    detail: "chain RPC unreachable",
   };
   assert.equal(message2UnsignedSchema.safeParse(retryable).success, true);
 });
@@ -186,7 +186,7 @@ test("message2UnsignedSchema rejects empty-string sessionId or meterReadingId â€
 test("buildUnsigned derives retryable and HTTP status from REASONS, never from the caller", () => {
   const { body, status } = buildUnsigned("channel_exhausted", {
     sessionId: "sess_1",
-    channel: "C".padEnd(56, "A"),
+    channel: "0x5FbDB2315678afecb367f032d93F642f64180aa3",
     remaining: "0",
     meterReadingId: "mr_1",
     detail: "deposit exhausted",
@@ -197,7 +197,7 @@ test("buildUnsigned derives retryable and HTTP status from REASONS, never from t
   const retryableCase = buildUnsigned("upstream_unavailable", {
     sessionId: null,
     meterReadingId: null,
-    detail: "Soroban RPC unreachable",
+    detail: "chain RPC unreachable",
   });
   assert.equal(retryableCase.body.retryable, true);
   assert.equal(retryableCase.status, 503);

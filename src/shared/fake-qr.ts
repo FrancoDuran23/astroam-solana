@@ -1,4 +1,4 @@
-// QR de mentira para los modos simulados (FakeProvider, CosmoPay mock).
+// QR de mentira para los modos simulados (FakeProvider, FakeRail).
 
 import { createHash } from "node:crypto";
 

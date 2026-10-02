@@ -10,23 +10,15 @@ import os from "node:os";
 import path from "node:path";
 import type { AddressInfo } from "node:net";
 import { createServerApp } from "../app.ts";
-import type { ChargePort } from "../charge-service.ts";
-import type { BuildResult, FailClosedBoot } from "../../config/boot.ts";
+import { bootProductService } from "../../product/runtime/product-boot.ts";
 import { WebhookEventLog } from "../../persistence/webhook-event.ts";
 import { openEsimStore, type EsimRecordRow } from "../../persistence/esim-record.ts";
 import { CitrusWebhookHandler } from "../../services/CitrusWebhookHandler.ts";
 
-const NETWORK = "stellar:testnet";
-const EXPLORER_BASE_URL = "https://stellar.expert/explorer/testnet";
-const PRICE_PER_MIB_RAW = 10_000n;
 const SECRET = "whsec_route_test_0123456789abcdef";
 
 function sign(body: string | Buffer, secret = SECRET): string {
   return createHmac("sha256", secret).update(body).digest("hex");
-}
-
-function fakeBoot(state: BuildResult<ChargePort>): FailClosedBoot<ChargePort> {
-  return { getState: () => state, ensureReady: async () => state };
 }
 
 function seedDefundPendingRow(iccid: string): EsimRecordRow {
@@ -59,10 +51,7 @@ async function withHooks(
   const log = WebhookEventLog.open(path.join(dir, "events.jsonl"));
   const handler = new CitrusWebhookHandler({ log, esimStore: store, logger: () => {} });
   const app = createServerApp({
-    boot: fakeBoot({ status: "ready", instance: null as unknown as ChargePort }),
-    network: NETWORK,
-    explorerBaseUrl: EXPLORER_BASE_URL,
-    pricePerMibRaw: PRICE_PER_MIB_RAW,
+    productService: bootProductService({ DATA_DIR: dir }),
     citrusWebhooks: { handler, secret: SECRET },
   });
   const server = app.listen(0);

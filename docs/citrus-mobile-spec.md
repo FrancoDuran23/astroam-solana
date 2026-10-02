@@ -1,5 +1,9 @@
 # Spec v2: reemplazar Telnyx por Citrus Mobile (AstroAm)
 
+> **Nota:** este documento se escribió cuando la base de AstroAm cobraba en
+> Stellar. Hoy la parte de pagos pasa por el riel de pago de cada cadena
+> (`src/rails/PaymentRail.ts`); todo lo de Citrus sigue vigente.
+
 Este documento es la **fuente única** para la migración. Reemplaza al spec v1 (`docs/citrus-mobile-spec.md`) y al plan derivado de él. Si algo choca con el README, prevalece la sección "Decisión: medir con el proveedor, sin gateway propio" del README, salvo donde este documento la precisa (marcado como **[precisión]**).
 
 Referencia técnica de la API de Citrus: `citrus-mobile-brief.md`. Este spec define **qué construir y cuándo está hecho**; el brief explica cómo funciona Citrus.
@@ -8,7 +12,7 @@ Referencia técnica de la API de Citrus: `citrus-mobile-brief.md`. Este spec def
 
 ## 1. Objetivo
 
-Que toda la conectividad de AstroAm (provisión de eSIM, fondeo de su wallet, lectura de consumo, corte, devolución) funcione sobre **Citrus Mobile**, alimentando el flujo de vales de Stellar que ya existe, y retirar Telnyx.
+Que toda la conectividad de AstroAm (provisión de eSIM, fondeo de su wallet, lectura de consumo, corte, devolución) funcione sobre **Citrus Mobile**, alimentando el flujo de vales del canal de pago que ya existe, y retirar Telnyx.
 
 ## 2. Decisiones vigentes
 
@@ -20,14 +24,14 @@ Que toda la conectividad de AstroAm (provisión de eSIM, fondeo de su wallet, le
 | D4 | `setDataLimit` se elimina. El tope lo da la wallet prepaga de la eSIM. | Decidido |
 | D5 | Cableado condicional por `CONNECTIVITY_PROVIDER` en `server/main.ts`. Sin la variable, el comportamiento actual no cambia. | Decidido |
 | D6 | Persistencia file-based (JSON/JSONL) con el patrón del repo. Sin SQL. | Decidido |
-| D7 | El agente de vales, sus guardrails y la lógica de Stellar **no se tocan**. | Restricción |
+| D7 | El agente de vales, sus guardrails y la lógica del canal de pago **no se tocan**. | Restricción |
 | D8 | La eSIM es una por usuario y se reutiliza entre viajes. No se termina al cerrar un viaje. | README |
 
 ## 3. Alcance
 
 **Dentro:** `CitrusProvider`/`CitrusClient`, fábrica y selector, adaptación del medidor y del `PolicyEnforcer`, secuencia de cierre, persistencia de eSIM, webhooks mínimos, config por zod, tests, demos y retiro de Telnyx.
 
-**Fuera (no tocar):** `src/agent/*` (incluido `guardrails.ts`), servidor de cobro y canal (`src/server/channel-*`, `close-monitor`), `src/shared/stellar/*`, CosmoPay, `settle`. Los grupos de saldo compartido de Citrus (`/groups`) tampoco se usan: una SIM en grupo no tiene wallet ni consumo individual.
+**Fuera (no tocar):** `src/agent/*` (incluido `guardrails.ts`), servidor de cobro y canal (`src/server/channel-*`, `close-monitor`), el código de la cadena, el pago de depósito, `settle`. Los grupos de saldo compartido de Citrus (`/groups`) tampoco se usan: una SIM en grupo no tiene wallet ni consumo individual.
 
 ## 4. Estado actual (implementación completa de la migración)
 
@@ -45,7 +49,7 @@ Estado al commit de la migración: **T1–T8 y T10 están implementados y en ver
 - `ConnectivitySession` (R13): `provider: "citrus"`, `chargedMicroUsd`, `chargedBaselineMicroUsd`, `fundedMicroUsd`; eliminados `carrierBytes` y `simCardId`.
 - Reconciliación (R13): `src/jobs/reconciliation.ts` contrasta `charged − baseline` contra `fondeado − walletUsd` (drift = wallet − esperado); solo diagnóstico, nunca lanza ni afecta la facturación. `mbToBytes` eliminado.
 - `server/main.ts` (D5): webhooks montados solo si `CONNECTIVITY_PROVIDER=citrus` + `CITRUS_WEBHOOK_SECRET` + `PRICE_PER_MB_RAW`, dentro de un try/catch que degrada con log sin impedir `listen` (FC-R1). No se monta el usage-loop ni `FundingService` en el ciclo de vida HTTP: la medición y el fondeo quedan gobernados por las rutas existentes (cierre) y por operación manual — la integración de valor (R5/R6/R9) queda para T9.
-- Demos (R14): `demo:flow`, `demo:cosmopay` y `verify-user-deposit` corren sin red usando `FakeProvider` y la interfaz nueva.
+- Demos (R14): las demos corren sin red usando `FakeProvider` y la interfaz nueva.
 - R15: retirados `src/providers/connectivity/TelnyxProvider.ts`, `TelnyxProvider.test.ts` y `docs/telnyx-wireless-integracion.md`; eliminadas las vars `TELNYX_*`; README actualizado (checklist "Falta", sección Proveedor, documentación).
 - Stack: Node ≥22.18 ejecutando `.ts` directo, TypeScript ESM estricto, tests con `node:test`. Comandos: `npm run check`, `npm test` (451 tests en verde).
 
@@ -179,7 +183,7 @@ El `baseline` del viaje siguiente se lee justo antes del primer `fund`, con la S
 **R13. Reconciliación reutilizada.** `src/jobs/reconciliation.ts` deja de comparar contra el gateway y pasa a contrastar dos cifras de Citrus: `charged − baseline` contra `fondeado − walletUsd`. Solo diagnóstico: registra la diferencia (tolerancia ≥ 5¢ + lag), nunca lanza ni afecta la facturación. `ConnectivitySession` pasa a `provider: "citrus"`, elimina `carrierBytes` y agrega `chargedMicroUsd`, `chargedBaselineMicroUsd`, `fundedMicroUsd`.
 - CA: con lecturas mockeadas el job loguea la diferencia y no lanza ante errores del proveedor.
 
-**R14. Tests y demos.** Tests de contrato con fixtures del OpenAPI; tabla de errores; timeout en `fund`; invariantes I1 e I2; `PolicyEnforcer` con `suspend`; secuencia de cierre; webhook duplicado y firma inválida; concurrencia de `provisionEsim` y de escrituras. `demo:flow` y `demo:cosmopay` siguen corriendo sin red usando `FakeProvider`.
+**R14. Tests y demos.** Tests de contrato con fixtures del OpenAPI; tabla de errores; timeout en `fund`; invariantes I1 e I2; `PolicyEnforcer` con `suspend`; secuencia de cierre; webhook duplicado y firma inválida; concurrencia de `provisionEsim` y de escrituras. La app sigue corriendo sin red usando `FakeProvider` y `FakeRail`.
 - CA: `npm run check` y `npm test` en verde.
 
 **R15. Retiro de Telnyx.** Último commit, **solo después de la prueba de humo (T9)**: borrar `TelnyxProvider.ts` y su test, `docs/telnyx-wireless-integracion.md`, variables `TELNYX_*`; actualizar el README (checklist "Falta" y sección Proveedor).
@@ -193,7 +197,7 @@ El `baseline` del viaje siguiente se lee justo antes del primer `fund`, con la S
 
 **Flujo de un viaje**
 
-1. **Apertura.** Depósito USDC → canal Soroban abierto → `provisionEsim` (o se reutiliza) → leer `baseline` → `topUp` a `maxWalletCents` (I2) → entregar QR / `directInstallUrl` al viajero.
+1. **Apertura.** Depósito USDC → canal de pago abierto → `provisionEsim` (o se reutiliza) → leer `baseline` → `topUp` a `maxWalletCents` (I2) → entregar QR / `directInstallUrl` al viajero.
 2. **Medición (cada ~10 min).** `getUsage` → `chargedSession` → `equivalentBytes` → vale firmado → cuota acreditada → `PolicyEnforcer` evalúa.
 3. **Top-up del canal.** Nuevo hueco hasta el nuevo `maxWalletCents` → `topUp` por la diferencia.
 4. **Cierre.** R9.

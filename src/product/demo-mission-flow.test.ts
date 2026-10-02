@@ -5,10 +5,8 @@ import assert from 'node:assert/strict'
 import { MissionProductService } from './services/MissionProductService.ts'
 import type { MissionRepository } from './persistence/MissionRepository.ts'
 import type { ProductMission } from './types/mission.ts'
-import { CosmoPayService } from '../services/CosmoPayService.ts'
+import { FakeRail } from '../rails/FakeRail.ts'
 import { FakeProvider } from '../providers/connectivity/FakeProvider.ts'
-import { createInMemoryVoucherPort } from '../meter/voucher-port.ts'
-import { isStellarContractId } from '../shared/stellar/keys.ts'
 
 class MemoryRepo implements MissionRepository {
   private store = new Map<string, ProductMission>()
@@ -54,9 +52,8 @@ before(() => {
 
   service = new MissionProductService({
     repo: new MemoryRepo(),
-    cosmoPay: new CosmoPayService(),
     connectivity: new FakeProvider(),
-    createOfflineVoucherPort: (depositRaw) => createInMemoryVoucherPort({ depositRaw }),
+    rail: new FakeRail(),
   })
 })
 
@@ -74,10 +71,10 @@ async function activeMission(budgetUsdc: number): Promise<string> {
   return id
 }
 
-test('una misión de demo recibe un canal con formato Soroban válido', async () => {
+test('el depósito abre un canal de pago para la misión', async () => {
   const id = await activeMission(5)
   const mission = await service.getMission(id)
-  assert.ok(isStellarContractId(mission.channelId), `channelId inválido: ${mission.channelId}`)
+  assert.match(mission.channelId ?? '', /^0x[0-9a-f]{40}$/)
 })
 
 test('el tráfico de demo firma vales y cobra la tarifa del destino, sin pausar antes de tiempo', async () => {

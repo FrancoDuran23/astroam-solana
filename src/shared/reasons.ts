@@ -3,7 +3,7 @@
 // in the codebase decides either one.
 //
 // This is the M2 vocabulary only: alarm-only reasons that never travel in a
-// gateway-facing response (`funder_trustline_missing`, `refund_not_received`,
+// gateway-facing response (`refund_not_received`,
 // `refund_raced`, `voucher_log_corrupt`, `config_invalid`) are deliberately
 // NOT in this table — mixing them would let an internal alarm leak into the
 // contract the gateway team froze on Wednesday.

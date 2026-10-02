@@ -33,7 +33,7 @@
 import type { ConnectivityProvider, SimUsage } from "../providers/connectivity/ConnectivityProvider.ts";
 import type { EsimStore, EsimRecordRow, EsimClosingStep } from "../persistence/esim-record.ts";
 import type { IntegratedMeterService, VoucherRequestResult } from "../meter/meter-service.ts";
-import type { CloseOutcome } from "../server/channel-service.ts";
+import type { CloseOutcome } from "../rails/PaymentRail.ts";
 import { equivalentBytes } from "../shared/usage-math.ts";
 
 export type SessionCloseResult =

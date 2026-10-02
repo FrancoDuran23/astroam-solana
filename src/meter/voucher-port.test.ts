@@ -1,10 +1,5 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import type { AddressInfo } from "node:net";
-import express from "express";
 import {
   VoucherTransportError,
   buildMessage1,
@@ -14,12 +9,9 @@ import {
   type VoucherPort,
 } from "./voucher-port.ts";
 import { buildUnsigned, message1Schema, type Message1, type Message2 } from "../shared/messages.ts";
-import { VoucherLog } from "../persistence/voucher-log.ts";
-import { createFakeSigner } from "../agent/signer.ts";
-import { createStaticDepositPort, createVoucherService, createVouchersRoute } from "../agent/routes/vouchers.ts";
 
-const NETWORK = "stellar:testnet" as const;
-const CHANNEL = `C${"A".repeat(55)}`;
+const NETWORK = "monad:testnet" as const;
+const CHANNEL = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
 const GATEWAY_TOKEN = "meter-test-gateway-token";
 const PRICE_PER_MIB_RAW = 1_048_576n; // 1 raw por byte: montos fáciles de leer
 
@@ -73,77 +65,6 @@ test("buildMessage1: arma un M1 válido con el monto de la función compartida (
   assert.equal(message.asset, "USDC");
   assert.equal(message.observedAt, "2026-09-23T12:00:00.000Z");
 });
-
-// --- HTTP contra la ruta real del agente -------------------------------------
-
-async function withRealAgentRoute(
-  depositRaw: bigint,
-  fn: (url: string) => Promise<void>,
-): Promise<void> {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "meter-voucher-port-test-"));
-  const opened = VoucherLog.open(path.join(dir, "vouchers-agent-testnet.jsonl"));
-  if (opened.status !== "ok") throw new Error("no se pudo abrir el voucher log de test");
-  const service = createVoucherService({
-    voucherLog: opened.log,
-    signer: createFakeSigner(),
-    depositPort: createStaticDepositPort(depositRaw),
-    network: NETWORK,
-    pricePerMibRaw: PRICE_PER_MIB_RAW,
-    maxDeltaPerRequestRaw: 100_000_000n,
-    emit: () => {},
-  });
-  const app = express();
-  app.use(express.json());
-  app.post("/vouchers", createVouchersRoute({ gatewayToken: GATEWAY_TOKEN, service, channel: CHANNEL }));
-  const server = app.listen(0);
-  await new Promise<void>((resolve) => server.once("listening", resolve));
-  const port = (server.address() as AddressInfo).port;
-  try {
-    await fn(`http://127.0.0.1:${port}/vouchers`);
-  } finally {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-  }
-}
-
-test("createHttpVoucherPort: contra la ruta real firma, reusa por monto igual y rechaza por agotamiento", async () => {
-  await withRealAgentRoute(3_000_000n, async (url) => {
-    const port = createHttpVoucherPort({ url, gatewayToken: GATEWAY_TOKEN });
-
-    const first = await port.requestVoucher(m1(1_000_000));
-    assert.equal(first.status, "signed");
-    if (first.status !== "signed") return;
-    assert.equal(first.reused, false);
-    assert.equal(first.voucher.cumulativeAmount, "1000000");
-    assert.equal(first.remaining, "2000000");
-
-    // Misma lectura acumulada (reintento del gateway) → idempotente (VE-R9)
-    const again = await port.requestVoucher(m1(1_000_000, { meterReadingId: "mr_retry" }));
-    assert.equal(again.status, "signed");
-    if (again.status !== "signed") return;
-    assert.equal(again.reused, true);
-    assert.equal(again.voucher.signature, first.voucher.signature);
-
-    // Por encima del depósito → channel_exhausted, no reintentable (200)
-    const exhausted = await port.requestVoucher(m1(4_000_000));
-    assert.equal(exhausted.status, "unsigned");
-    if (exhausted.status !== "unsigned") return;
-    assert.equal(exhausted.reason, "channel_exhausted");
-    assert.equal(exhausted.retryable, false);
-  });
-});
-
-test("createHttpVoucherPort: token incorrecto → VoucherTransportError 401 no reintentable", async () => {
-  await withRealAgentRoute(3_000_000n, async (url) => {
-    const port = createHttpVoucherPort({ url, gatewayToken: "token-equivocado" });
-    await assert.rejects(
-      () => port.requestVoucher(m1(1_000_000)),
-      (error: unknown) =>
-        error instanceof VoucherTransportError && error.httpStatus === 401 && error.retryable === false,
-    );
-  });
-});
-
-// --- HTTP con fetch inyectado ------------------------------------------------
 
 test("createHttpVoucherPort: envía POST con X-Gateway-Token y el M1 como JSON", async () => {
   let captured: { url: string; init: RequestInit | undefined } | undefined;

@@ -1,16 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import {
-  IntegratedMeterService,
-  createStellarChannelBalanceAdapter,
-} from "./meter-service.ts";
+import { IntegratedMeterService } from "./meter-service.ts";
 import type { ConnectivityProvider, SimUsage } from "../providers/connectivity/ConnectivityProvider.ts";
 import {
   createConnectivitySession,
   type ConnectivitySession,
 } from "../models/ConnectivitySession.ts";
-import type { ChannelStatePort } from "../server/channel-service.ts";
-import { decidePolicy } from "../services/PolicyEnforcer.ts";
 import { buildUnsigned, type Message1, type Message2 } from "../shared/messages.ts";
 import {
   VoucherTransportError,
@@ -19,8 +14,8 @@ import {
   type VoucherPort,
 } from "./voucher-port.ts";
 
-/** Contrato de canal con formato válido (C + 55 base32), como en los tests del agente. */
-const CHANNEL = `C${"A".repeat(55)}`;
+/** Id de canal como lo formatea un riel EVM (dirección del contrato). */
+const CHANNEL = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
 /** 1_048_576 raw/MiB = 1 raw/byte = 1_000_000 raw/MB: el mismo precio que
  * `pricePerMbRaw: 1_000_000n` de la política, expresado por MiB (CF-R2). */
 const PRICE_PER_MIB_RAW = 1_048_576n;
@@ -28,76 +23,12 @@ const PRICE_PER_MIB_RAW = 1_048_576n;
 function voucherOptions(depositRaw: bigint, voucherPort?: VoucherPort) {
   return {
     voucherPort: voucherPort ?? createInMemoryVoucherPort({ depositRaw }),
-    network: "stellar:testnet" as const,
+    network: "monad:testnet" as const,
     voucherPricePerMibRaw: PRICE_PER_MIB_RAW,
   };
 }
 
 const ACTIVE_USAGE: SimUsage = { chargedMicroUsd: 0n, walletMicroUsd: 0n, status: "active", asOf: "" };
-
-test("createStellarChannelBalanceAdapter: extrae el depositRaw cuando el canal existe", async () => {
-  const fakeStatePort: ChannelStatePort = {
-    async getChannelInfo(channel: string) {
-      assert.equal(channel, "C1234567890");
-      return {
-        found: true,
-        depositRaw: 10_000_000n,
-        balanceRaw: 10_000_000n,
-        closeEffectiveAtLedger: null,
-        currentLedger: 1000,
-        to: "GABC...",
-        token: "CUSDC...",
-      };
-    },
-  };
-
-  const adapter = createStellarChannelBalanceAdapter(fakeStatePort);
-  const balance = await adapter.getChannelBalance("C1234567890");
-  assert.equal(balance, 10_000_000n);
-});
-
-test("createStellarChannelBalanceAdapter: tras un settle() devuelve el depósito acumulado, no el balance on-chain", async () => {
-  // Depósito 10 USDC; el servidor ya cobró 4 USDC con settle(), así que el
-  // balance() on-chain bajó a 6 USDC. El costo que compara la política es
-  // acumulado desde la apertura, por eso la base debe ser el depósito.
-  const fakeStatePort: ChannelStatePort = {
-    async getChannelInfo() {
-      return {
-        found: true,
-        depositRaw: 100_000_000n,
-        balanceRaw: 60_000_000n,
-        closeEffectiveAtLedger: null,
-        currentLedger: 1000,
-        to: "GABC...",
-        token: "CUSDC...",
-      };
-    },
-  };
-
-  const adapter = createStellarChannelBalanceAdapter(fakeStatePort);
-  const depositRaw = await adapter.getChannelBalance(CHANNEL);
-  assert.equal(depositRaw, 100_000_000n);
-
-  // 5 MB consumidos a 1 USDC/MB: quedan 5 USDC del depósito (no 1 USDC,
-  // que sería restar el costo acumulado al balance ya liquidado).
-  const action = decidePolicy({ balanceRaw: depositRaw, costRaw: 50_000_000n, pricePerMbRaw: 10_000_000n });
-  assert.equal(action.kind, "noop");
-  assert.equal(action.remainingRaw, 50_000_000n);
-});
-
-test("createStellarChannelBalanceAdapter: lanza error si el canal no existe", async () => {
-  const fakeStatePort: ChannelStatePort = {
-    async getChannelInfo() {
-      return { found: false };
-    },
-  };
-
-  const adapter = createStellarChannelBalanceAdapter(fakeStatePort);
-  await assert.rejects(
-    () => adapter.getChannelBalance("C_DESCONOCIDO"),
-    /Canal de Stellar no encontrado/,
-  );
-});
 
 test("IntegratedMeterService: procesa tráfico dentro del saldo y mantiene la conexión activa", async () => {
   let suspendedCalls = 0;
@@ -281,7 +212,7 @@ test("IntegratedMeterService: pide el vale con el M1 del acumulado y acredita so
   const [m1a, m1b] = port.sent;
   assert.equal(m1a!.channel, CHANNEL);
   assert.equal(m1a!.sessionId, "sess_v");
-  assert.equal(m1a!.network, "stellar:testnet");
+  assert.equal(m1a!.network, "monad:testnet");
   assert.equal(m1a!.cumulativeBytes, 1_500_000);
   assert.equal(m1a!.cumulativeAmount, "1500000"); // ceilDiv(bytes × PRICE_PER_MIB_RAW, 1 MiB)
   assert.equal(m1a!.observedAt, "2026-09-23T12:00:00.000Z");
@@ -449,7 +380,7 @@ test("IntegratedMeterService: un vale firmado por menos del acumulado pedido no 
     version: 1,
     sessionId: "sess_v",
     channel: CHANNEL,
-    network: "stellar:testnet",
+    network: "monad:testnet",
     asset: "USDC",
     cumulativeBytes: 100,
     cumulativeAmount: "100",

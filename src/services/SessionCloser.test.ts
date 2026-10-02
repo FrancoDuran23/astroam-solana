@@ -1,7 +1,7 @@
 // Tests for SessionCloser (docs/citrus-mobile-spec.md v2 §7 R9): the persisted
 // closing walk end-to-end against the FakeProvider + a real esim-record store
 // (temp files). The meter is the real IntegratedMeterService with the
-// in-memory voucher double; only the Stellar channel is faked (a ChannelBalancePort
+// in-memory voucher double; only the payment channel is faked (a ChannelBalancePort
 // returning a fixed deposit + a closeChannel stub).
 
 import { test } from "node:test";
@@ -16,7 +16,7 @@ import { IntegratedMeterService } from "../meter/meter-service.ts";
 import { createInMemoryVoucherPort } from "../meter/voucher-port.ts";
 import { createConnectivitySession } from "../models/ConnectivitySession.ts";
 import { pricePerMibFromPerMbRaw } from "../shared/money.ts";
-import type { CloseOutcome } from "../server/channel-service.ts";
+import type { CloseOutcome } from "../rails/PaymentRail.ts";
 import { CitrusWebhookHandler } from "./CitrusWebhookHandler.ts";
 import { WebhookEventLog } from "../persistence/webhook-event.ts";
 
@@ -81,7 +81,7 @@ async function buildHarness(over: {
     provider,
     balancePort: { getChannelBalance: async () => DEPOSIT_RAW },
     voucherPort: createInMemoryVoucherPort({ depositRaw: DEPOSIT_RAW, seed: "session-closer-test" }),
-    network: "stellar:testnet",
+    network: "monad:testnet",
     voucherPricePerMibRaw: VOUCHER_PRICE_PER_MIB_RAW,
     pricePerMbRaw: PRICE_PER_MB_RAW,
     logger: () => {},
@@ -242,7 +242,7 @@ test("runOnce sin fila o sin cierre en curso devuelve skipped", async () => {
 
 test("un cierre de canal fallido mantiene el paso canal_cerrado para que el operador reintente", async () => {
   const h = await buildHarness({
-    closeOutcome: { kind: "blocked", reason: "funder_trustline_missing", detail: "sin trustline" },
+    closeOutcome: { kind: "blocked", reason: "funder_allowance_missing", detail: "sin allowance" },
     row: { closing: { step: "canal_cerrado", startedAt: new Date().toISOString() } },
   });
 

@@ -5,23 +5,30 @@
 
 import { z } from "zod";
 import { isReason, retryableFor, statusFor, type Reason } from "./reasons.ts";
-import { isStellarContractId } from "./stellar/keys.ts";
-import { NETWORKS } from "./stellar/network.ts";
+import { isNetwork } from "./network.ts";
 
-// Raw i128 units of a SEP-41 asset, 7 decimals implied. Never a JSON number
+// Raw integer amount in the internal accounting unit (1 raw = 1e-7 USDC);
+// each payment rail converts it to its token's decimals. Never a JSON number
 // (exceeds Number.MAX_SAFE_INTEGER for real sessions), never a decimal
 // string like "0.0125" (VE-R3), and never a leading-zero string like "007"
 // (review finding, Lote C: "007" is not a canonical integer literal and
 // must not silently round-trip as 7).
 const RAW_AMOUNT_RE = /^(0|[1-9]\d*)$/;
 
-// i128 max: 2**127 - 1. An amount above this can never be a real SEP-41 raw
-// balance and must be rejected before it reaches BigInt arithmetic anywhere
+// Upper bound (2**127 - 1): an amount above this can never be a real balance
+// and must be rejected before it reaches BigInt arithmetic anywhere
 // downstream (review finding, Lote C).
 const MAX_I128 = 2n ** 127n - 1n;
 
-const HEX_64_RE = /^[0-9a-fA-F]{64}$/;
-const HEX_128_RE = /^[0-9a-fA-F]{128}$/;
+// A voucher signature as hex (optional 0x): 64 bytes for ed25519, 65 for an
+// EVM secp256k1 signature. Each rail checks the exact format it produces.
+const SIGNATURE_RE = /^(0x)?(?:[0-9a-fA-F]{2}){64,65}$/;
+
+// Channel ids and signer addresses as the rail formats them: an EVM address
+// (0x…), a Solana public key (base58), etc.
+const CHAIN_ID_RE = /^[A-Za-z0-9]{1,128}$/;
+const channelSchema = z.string().regex(CHAIN_ID_RE, "must be the channel id as the payment rail formats it");
+const networkSchema = z.string().refine(isNetwork, "must be a <chain>:<name> network id");
 
 const rawAmountSchema = z
   .string()
@@ -49,8 +56,8 @@ export const message1Schema = z
   .object({
     version: z.literal(1),
     sessionId: z.string().min(1),
-    channel: z.string().refine(isStellarContractId, "must be a 56-char Soroban contract id starting with C").optional(),
-    network: z.enum(NETWORKS),
+    channel: channelSchema.optional(),
+    network: networkSchema,
     asset: z.literal("USDC"),
     cumulativeBytes: z.number().int().nonnegative(),
     cumulativeAmount: rawAmountSchema,
@@ -73,12 +80,12 @@ export const message2SignedSchema = z.object({
   version: z.literal(1),
   status: z.literal("signed"),
   sessionId: z.string().min(1),
-  channel: z.string().refine(isStellarContractId, "must be a 56-char Soroban contract id starting with C"),
+  channel: channelSchema,
   voucher: z.object({
     cumulativeAmount: rawAmountSchema,
-    signature: z.string().regex(HEX_128_RE),
-    commitmentPubkey: z.string().regex(HEX_64_RE),
-    network: z.enum(NETWORKS),
+    signature: z.string().regex(SIGNATURE_RE),
+    commitmentPubkey: z.string().regex(CHAIN_ID_RE),
+    network: networkSchema,
   }),
   meterReadingId: z.string().min(1),
   reused: z.boolean(),
@@ -107,7 +114,7 @@ export const message2UnsignedSchema = z
     version: z.literal(1),
     status: z.literal("unsigned"),
     sessionId: z.string().min(1).nullable(),
-    channel: z.string().refine(isStellarContractId, "must be a 56-char Soroban contract id starting with C").optional(),
+    channel: channelSchema.optional(),
     reason: reasonSchema,
     retryable: z.boolean(),
     remaining: rawAmountSchema,

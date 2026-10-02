@@ -1,5 +1,5 @@
 // Bounded retry with exponential backoff and full jitter (design 4.5,
-// FT-R3). Applied only to outgoing calls (Soroban RPC, the internal
+// FT-R3). Applied only to outgoing calls (chain RPC, the internal
 // agent -> server hop) — never to a business decision. Defaults: at most 3
 // retries (4 attempts total), base 250ms doubling. `RETRY_MAX_DELAY_MS` is
 // set to 1000ms, the natural ceiling of that 250/500/1000 sequence at the
@@ -83,7 +83,7 @@ function defaultSleep(ms: number): Promise<void> {
   });
 }
 
-/** Thrown by a port (`config/boot.ts`'s real Soroban RPC ports) for a
+/** Thrown by a port (a payment rail's chain RPC calls) for a
  * genuine transport-level failure — DNS, connection refused, a malformed
  * RPC response, anything that is NOT a definitive "this channel does not
  * exist" simulation result (review finding 5, Lote F). Distinct from a

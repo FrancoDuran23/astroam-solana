@@ -1,103 +1,74 @@
-import type { CosmoPayService } from '../../services/CosmoPayService.ts'
 import type { ConnectivityProvider } from '../../providers/connectivity/ConnectivityProvider.ts'
 import type { MissionRepository } from '../persistence/MissionRepository.ts'
 import type { Capabilities, DestinationInfo, ProductMission, PublicEsimInfo } from '../types/mission.ts'
 import { IntegratedMeterService } from '../../meter/meter-service.ts'
 import type { ChannelBalancePort } from '../../services/PolicyEnforcer.ts'
-import type { VoucherPort } from '../../meter/voucher-port.ts'
-import type { ChannelPort } from '../../agent/channel.ts'
 import { createConnectivitySession, type ConnectivitySession } from '../../models/ConnectivitySession.ts'
 import { runReconciliation } from '../../jobs/reconciliation.ts'
-import type { Network } from '../../shared/stellar/network.ts'
 import { parseNonNegativeIntegerRaw, pricePerMibFromPerMbRaw } from '../../shared/money.ts'
-import { createHash } from 'node:crypto'
-import { StrKey } from '@stellar/stellar-sdk'
+import type { PaymentRail } from '../../rails/PaymentRail.ts'
 
-/** USDC (número) a raw units (1e-7 USDC). */
+/** USDC (number) to raw units (1e-7 USDC). */
 function usdcToRaw(usdc: number): bigint {
   return BigInt(Math.round(usdc * 1e7))
 }
 
-/** Variable de entorno raw no vacía, o `undefined`. */
+/** Raw units (1e-7 USDC) to USDC, rounded to 6 decimals. */
+function rawToUsdc(raw: bigint): number {
+  return Number(raw) / 1e7
+}
+
+/** A non-empty raw-unit environment variable, or `undefined`. */
 function envRaw(key: string): bigint | undefined {
   const value = process.env[key]
   return value ? parseNonNegativeIntegerRaw(value) : undefined
 }
 
-/** Contrato de canal con formato válido (C…, 56 chars) derivado de la misión,
- * para el modo sin canal real: el agente de pagos rechaza cualquier otro formato. */
-function demoChannelId(missionId: string): string {
-  return StrKey.encodeContract(createHash('sha256').update(`astroam-demo-channel:${missionId}`).digest())
+function unavailable(message: string): Error {
+  const err = new Error(`503: ${message}`)
+  ;(err as unknown as { statusCode: number }).statusCode = 503
+  return err
 }
 
 export type MissionProductServiceOptions = {
   repo: MissionRepository
-  cosmoPay: CosmoPayService
-  connectivity?: ConnectivityProvider
-  citrus?: ConnectivityProvider
-  telnyx?: ConnectivityProvider
-  voucherPort?: VoucherPort
-  /** Sin agente real: crea un agente de pagos simulado por misión, con el
-   * depósito de esa misión (leído en cada pedido, para reflejar recargas). */
-  createOfflineVoucherPort?: (depositRaw: () => bigint) => VoucherPort
-  balancePort?: ChannelBalancePort
-  channelPort?: ChannelPort
+  connectivity: ConnectivityProvider
+  /** How missions are paid: a real chain, or FakeRail for demos. */
+  rail: PaymentRail
   hasCitrusReal?: boolean
-  hasTelnyxReal?: boolean
-  hasChannelReal?: boolean
-  hasVoucherAgentReal?: boolean
-  network?: Network
 }
 
 export class MissionProductService {
   private repo: MissionRepository
-  private cosmoPay: CosmoPayService
   private connectivity: ConnectivityProvider
-  private voucherPort?: VoucherPort
-  private createOfflineVoucherPort?: (depositRaw: () => bigint) => VoucherPort
-  private balancePort?: ChannelBalancePort
-  private channelPort?: ChannelPort
+  private rail: PaymentRail
   private hasCitrusReal: boolean
-  private hasChannelReal: boolean
-  private hasVoucherAgentReal: boolean
-  private network: Network
 
   // Active sessions & meter services per mission
   private sessions = new Map<string, ConnectivitySession>()
   private meters = new Map<string, IntegratedMeterService>()
-  // Presupuesto vigente de cada misión en raw units (se actualiza en cada lectura)
-  private depositsRaw = new Map<string, bigint>()
 
   constructor(options: MissionProductServiceOptions) {
     this.repo = options.repo
-    this.cosmoPay = options.cosmoPay
-    const conn = options.connectivity || options.citrus || options.telnyx
-    if (!conn) {
-      throw new Error('ConnectivityProvider es requerido en MissionProductServiceOptions')
-    }
-    this.connectivity = conn
-    this.voucherPort = options.voucherPort
-    this.createOfflineVoucherPort = options.createOfflineVoucherPort
-    this.balancePort = options.balancePort
-    this.channelPort = options.channelPort
-    this.hasCitrusReal = options.hasCitrusReal ?? options.hasTelnyxReal ?? false
-    this.hasChannelReal = options.hasChannelReal ?? false
-    this.hasVoucherAgentReal = options.hasVoucherAgentReal ?? false
-    this.network = options.network ?? 'stellar:testnet'
+    this.connectivity = options.connectivity
+    this.rail = options.rail
+    this.hasCitrusReal = options.hasCitrusReal ?? false
   }
 
   private isLiveMode(): boolean {
     return process.env.ASTROAM_LIVE_ENABLED === 'true'
   }
 
+  private async load(missionId: string): Promise<ProductMission> {
+    const mission = await this.repo.findById(missionId)
+    if (!mission) throw new Error(`Mission ${missionId} not found`)
+    return mission
+  }
+
   private getMissingConfiguration(): string[] {
     const missing: string[] = []
-    if (!process.env.COSMOS_PAY_API_KEY) missing.push('COSMOS_PAY_API_KEY')
+    if (!this.rail.isLive) missing.push('PAYMENT_RAIL')
     if (!process.env.CITRUS_API_KEY) missing.push('CITRUS_API_KEY')
-    if (!process.env.PRICE_PER_MB_RAW) missing.push('PRICE_PER_MB_RAW')
-    if (!process.env.CHANNEL_CONTRACT) missing.push('CHANNEL_CONTRACT')
-    if (!process.env.AGENT_VOUCHERS_URL) missing.push('AGENT_VOUCHERS_URL')
-    if (!process.env.GATEWAY_TOKEN) missing.push('GATEWAY_TOKEN')
     if (this.isLiveMode()) {
       if (!process.env.ASTROAM_DEMO_ACCESS_TOKEN) missing.push('ASTROAM_DEMO_ACCESS_TOKEN')
       if (!process.env.FRONTEND_ORIGIN || process.env.FRONTEND_ORIGIN === '*') missing.push('FRONTEND_ORIGIN')
@@ -107,76 +78,30 @@ export class MissionProductService {
 
   async getCapabilities(): Promise<Capabilities> {
     const isLive = this.isLiveMode()
-    const missing = this.getMissingConfiguration()
-
-    let voucherAgentReady = false
-    const agentUrl = process.env.AGENT_VOUCHERS_URL
-    if (agentUrl && this.hasVoucherAgentReal) {
-      try {
-        const baseUrl = agentUrl.replace(/\/vouchers\/?$/, '')
-        const controller = new AbortController()
-        const timer = setTimeout(() => controller.abort(), 1500)
-        const res = await fetch(`${baseUrl}/ready`, { signal: controller.signal })
-        clearTimeout(timer)
-        if (res.ok) {
-          const body = (await res.json()) as { status?: string }
-          voucherAgentReady = body.status === 'ready'
-        }
-      } catch {
-        voucherAgentReady = false
-      }
-    }
-
-    const channelConfigured = Boolean(process.env.CHANNEL_CONTRACT)
+    const railReady = this.rail.isLive
     const citrusReady = this.hasCitrusReal
-    const channelReady = this.hasChannelReal
-    const cosmoPayStatus: Capabilities['cosmoPayStatus'] = this.cosmoPay.isMock
-      ? (isLive ? 'unavailable' : 'mock')
-      : 'live'
-
-    let meteringMode: Capabilities['meteringMode'] = 'demo'
-    if (isLive) {
-      if (voucherAgentReady && channelReady && citrusReady) {
-        meteringMode = 'real'
-      } else {
-        meteringMode = 'unavailable'
-      }
-    } else {
-      meteringMode = 'demo'
-    }
 
     let mode: Capabilities['mode'] = 'demo'
     if (isLive) {
-      if (cosmoPayStatus === 'live' && citrusReady && channelReady && voucherAgentReady) {
-        mode = 'live'
-      } else if (cosmoPayStatus === 'live' || citrusReady || channelReady || voucherAgentReady) {
-        mode = 'partial'
-      } else {
-        mode = 'demo'
-      }
+      mode = railReady && citrusReady ? 'live' : railReady || citrusReady ? 'partial' : 'demo'
     }
 
     return {
       backendAvailable: true,
-      network: this.network,
-      stage: channelConfigured ? 2 : 1,
-      channelConfigured,
-      voucherAgentAvailable: voucherAgentReady,
-      paymentServerReady: true,
-      voucherAgentReady,
-      channelReady,
+      network: this.rail.network,
+      paymentRail: this.rail.displayName,
+      paymentsLive: railReady,
+      channelReady: railReady,
       citrusReady,
-      connectivityProvider: this.hasCitrusReal ? 'citrus' : 'fake',
-      cosmoPayStatus,
-      cosmoPayMode: cosmoPayStatus,
+      connectivityProvider: citrusReady ? 'citrus' : 'fake',
       citrusStatus: citrusReady ? 'live' : 'unavailable',
-      meteringMode,
+      meteringMode: isLive ? (railReady && citrusReady ? 'real' : 'unavailable') : 'demo',
       reconciliationAvailable: citrusReady,
       demoTrafficEnabled: process.env.ENABLE_DEMO_TRAFFIC === 'true',
       mode,
       liveEnabled: isLive,
       requiresAuth: isLive && Boolean(process.env.ASTROAM_DEMO_ACCESS_TOKEN),
-      missingConfiguration: missing,
+      missingConfiguration: this.getMissingConfiguration(),
     }
   }
 
@@ -225,91 +150,89 @@ export class MissionProductService {
   }
 
   async createPaymentIntent(missionId: string) {
-    const mission = await this.repo.findById(missionId)
-    if (!mission) throw new Error(`Misión ${missionId} no encontrada`)
-
-    if (this.isLiveMode() && this.cosmoPay.isMock) {
-      const err = new Error('503: Servicio CosmoPay no disponible en modo live (falta COSMOS_PAY_API_KEY)')
-      ;(err as unknown as { statusCode: number }).statusCode = 503
-      throw err
+    const mission = await this.load(missionId)
+    if (this.isLiveMode() && !this.rail.isLive) {
+      throw unavailable('payments are simulated; configure a live payment rail for live mode')
     }
 
-    const intent = await this.cosmoPay.createDepositIntent({
-      amount: mission.budgetUsdc.toString(),
-      msg: `ASTROAM Mision ${mission.id}`,
+    const intent = await this.rail.createDepositIntent({
+      missionId: mission.id,
+      amountUsdc: mission.budgetUsdc,
+      purpose: 'mission',
     })
 
-    mission.paymentIntentId = intent.id
+    mission.paymentIntentId = intent.intentId
     await this.repo.save(mission)
 
     return {
-      intentId: intent.id,
-      amount: intent.amount,
+      intentId: intent.intentId,
+      amount: String(intent.amountUsdc),
       asset: intent.asset,
-      sep7Uri: intent.uri,
+      payTo: intent.payTo,
+      paymentUri: intent.paymentUri,
       qr: intent.qr,
-      destination: intent.destination,
-      status: intent.status,
+      network: this.rail.network,
+      status: 'pending',
       isMock: intent.isMock,
     }
   }
 
   async confirmPayment(missionId: string, intentId: string, txHash: string) {
-    const mission = await this.repo.findById(missionId)
-    if (!mission) throw new Error(`Misión ${missionId} no encontrada`)
+    const mission = await this.load(missionId)
 
     if (mission.paymentStatus === 'paid' && mission.depositTxHash) {
-      return { valid: true, status: 'paid', depositTxHash: mission.depositTxHash }
+      return {
+        valid: true,
+        status: 'paid',
+        depositTxHash: mission.depositTxHash,
+        explorerUrl: mission.depositExplorerUrl,
+        channelId: mission.channelId,
+      }
     }
 
-    if (this.isLiveMode() && this.cosmoPay.isMock) {
-      const err = new Error('503: Servicio CosmoPay no disponible en modo live')
-      ;(err as unknown as { statusCode: number }).statusCode = 503
-      throw err
+    if (this.isLiveMode() && !this.rail.isLive) {
+      throw unavailable('payments are simulated; configure a live payment rail for live mode')
     }
 
-    const result = await this.cosmoPay.validateTx(intentId, txHash)
+    const result = await this.rail.confirmDeposit({ missionId, intentId, txHash, purpose: 'mission' })
     if (!result.valid) {
       mission.paymentStatus = 'failed'
       await this.repo.save(mission)
-      throw new Error(`Pago inválido para la intención ${intentId}: ${result.status}`)
+      throw new Error(`Deposit for intent ${intentId} was not accepted: ${result.reason}`)
     }
 
     mission.paymentStatus = 'paid'
     mission.status = 'paid'
-    mission.depositTxHash = txHash
+    mission.depositTxHash = result.txHash
+    mission.depositExplorerUrl = result.explorerUrl
+    mission.channelId = result.channelId
     await this.repo.save(mission)
 
-    return { valid: true, status: 'paid', depositTxHash: txHash }
+    return {
+      valid: true,
+      status: 'paid',
+      depositTxHash: result.txHash,
+      explorerUrl: result.explorerUrl,
+      channelId: result.channelId,
+    }
   }
 
   async activateMission(missionId: string) {
-    const mission = await this.repo.findById(missionId)
-    if (!mission) throw new Error(`Misión ${missionId} no encontrada`)
+    const mission = await this.load(missionId)
 
-    if (mission.paymentStatus !== 'paid') {
-      throw new Error('No se puede activar una misión cuyo pago no ha sido validado')
+    if (mission.paymentStatus !== 'paid' || !mission.channelId) {
+      throw new Error('A mission can only be activated after its deposit is confirmed')
     }
-
     if (this.isLiveMode() && !this.hasCitrusReal) {
-      const err = new Error('503: Servicio Citrus Mobile no disponible en modo live (falta CITRUS_API_KEY)')
-      ;(err as unknown as { statusCode: number }).statusCode = 503
-      throw err
+      throw unavailable('Citrus Mobile is not configured for live mode (missing CITRUS_API_KEY)')
     }
 
-    // Idempotent check
+    // Idempotent
     if (mission.status === 'active' && mission.iccid && mission.esim) {
-      return {
-        missionId: mission.id,
-        status: mission.status,
-        isMock: !this.hasCitrusReal,
-        esim: mission.esim,
-      }
+      return { missionId: mission.id, status: mission.status, isMock: !this.hasCitrusReal, esim: mission.esim }
     }
 
     const esimRecord = await this.connectivity.provisionEsim(mission.userId)
-    const channelId = mission.channelId || process.env.CHANNEL_CONTRACT || demoChannelId(mission.id)
-
     const publicEsim: PublicEsimInfo = {
       iccid: esimRecord.iccid,
       lpaString: esimRecord.lpaString,
@@ -321,46 +244,37 @@ export class MissionProductService {
 
     mission.iccid = esimRecord.iccid
     mission.esim = publicEsim
-    mission.channelId = channelId
     mission.status = 'active'
     mission.esimStatus = 'active'
 
-    // Create session
-    const session = createConnectivitySession({
-      id: `ses_${mission.id}`,
-      userId: mission.userId,
-      iccid: esimRecord.iccid,
-      channelId,
-    })
-    this.sessions.set(mission.id, session)
+    this.sessions.set(
+      mission.id,
+      createConnectivitySession({
+        id: `ses_${mission.id}`,
+        userId: mission.userId,
+        iccid: esimRecord.iccid,
+        channelId: mission.channelId,
+      }),
+    )
 
     await this.repo.save(mission)
-
-    return {
-      missionId: mission.id,
-      status: 'active',
-      isMock: !this.hasCitrusReal,
-      esim: publicEsim,
-    }
+    return { missionId: mission.id, status: 'active', isMock: !this.hasCitrusReal, esim: publicEsim }
   }
 
   async getMission(missionId: string): Promise<ProductMission> {
-    const mission = await this.repo.findById(missionId)
-    if (!mission) throw new Error(`Misión ${missionId} no encontrada`)
-    return mission
+    return this.load(missionId)
   }
 
   async getUsage(missionId: string) {
-    const mission = await this.repo.findById(missionId)
-    if (!mission) throw new Error(`Misión ${missionId} no encontrada`)
+    const mission = await this.load(missionId)
 
     let session = this.sessions.get(missionId)
-    if (!session && mission.iccid) {
+    if (!session && mission.iccid && mission.channelId) {
       session = createConnectivitySession({
         id: `ses_${mission.id}`,
         userId: mission.userId,
         iccid: mission.iccid,
-        channelId: mission.channelId || 'channel_unknown',
+        channelId: mission.channelId,
       })
       this.sessions.set(missionId, session)
     }
@@ -374,7 +288,7 @@ export class MissionProductService {
         carrierBytes: '0',
         differenceBytes: mission.meteredBytes,
         isEstimation: true,
-        note: 'Estimación contable basada en tarifa en USDC',
+        note: 'Estimate based on the USDC rate',
       }
     }
 
@@ -390,137 +304,111 @@ export class MissionProductService {
       carrierBytes: mission.carrierBytes,
       differenceBytes: (BigInt(mission.meteredBytes) - BigInt(mission.carrierBytes)).toString(),
       isEstimation: true,
-      note: 'Estimación contable basada en tarifa en USDC',
+      note: 'Estimate based on the USDC rate',
     }
   }
 
   async pauseMission(missionId: string) {
-    const mission = await this.repo.findById(missionId)
-    if (!mission) throw new Error(`Misión ${missionId} no encontrada`)
-
+    const mission = await this.load(missionId)
     if (this.isLiveMode() && !this.hasCitrusReal) {
-      const err = new Error('503: Servicio Citrus Mobile no disponible en modo live')
-      ;(err as unknown as { statusCode: number }).statusCode = 503
-      throw err
+      throw unavailable('Citrus Mobile is not configured for live mode')
     }
 
-    if (mission.iccid) {
-      await this.connectivity.suspend(mission.iccid)
-    }
+    if (mission.iccid) await this.connectivity.suspend(mission.iccid)
 
     mission.esimStatus = 'paused'
     mission.status = 'paused'
-    if (mission.esim) {
-      mission.esim.status = 'suspended'
-    }
+    if (mission.esim) mission.esim.status = 'suspended'
     await this.repo.save(mission)
 
     return { status: 'paused', esimStatus: 'paused' }
   }
 
   async resumeMission(missionId: string) {
-    const mission = await this.repo.findById(missionId)
-    if (!mission) throw new Error(`Misión ${missionId} no encontrada`)
-
+    const mission = await this.load(missionId)
     if (this.isLiveMode() && !this.hasCitrusReal) {
-      const err = new Error('503: Servicio Citrus Mobile no disponible en modo live')
-      ;(err as unknown as { statusCode: number }).statusCode = 503
-      throw err
+      throw unavailable('Citrus Mobile is not configured for live mode')
     }
 
-    if (mission.iccid) {
-      await this.connectivity.resume(mission.iccid)
-    }
+    if (mission.iccid) await this.connectivity.resume(mission.iccid)
 
     mission.esimStatus = 'active'
     mission.status = 'active'
-    if (mission.esim) {
-      mission.esim.status = 'active'
-    }
+    if (mission.esim) mission.esim.status = 'active'
     await this.repo.save(mission)
 
     return { status: 'active', esimStatus: 'active' }
   }
 
   async createTopUpIntent(missionId: string, amountUsdc: number) {
-    const mission = await this.repo.findById(missionId)
-    if (!mission) throw new Error(`Misión ${missionId} no encontrada`)
-
-    if (this.isLiveMode() && this.cosmoPay.isMock) {
-      const err = new Error('503: Servicio CosmoPay no disponible en modo live')
-      ;(err as unknown as { statusCode: number }).statusCode = 503
-      throw err
+    const mission = await this.load(missionId)
+    if (!mission.channelId) throw new Error('This mission has no payment channel yet')
+    if (this.isLiveMode() && !this.rail.isLive) {
+      throw unavailable('payments are simulated; configure a live payment rail for live mode')
     }
 
-    const intent = await this.cosmoPay.createDepositIntent({
-      amount: amountUsdc.toString(),
-      msg: `ASTROAM Recarga ${missionId}`,
+    const intent = await this.rail.createDepositIntent({
+      missionId,
+      amountUsdc,
+      purpose: 'topup',
+      channelId: mission.channelId,
     })
 
-    const record = {
+    mission.topups.push({
       id: `top_${Date.now()}`,
-      intentId: intent.id,
+      intentId: intent.intentId,
       amountUsdc,
-      status: 'pending' as const,
+      status: 'pending',
       createdAt: new Date().toISOString(),
-    }
-
-    mission.topups.push(record)
+    })
     await this.repo.save(mission)
 
     return {
-      intentId: intent.id,
-      amount: intent.amount,
+      intentId: intent.intentId,
+      amount: String(intent.amountUsdc),
       asset: intent.asset,
-      sep7Uri: intent.uri,
+      payTo: intent.payTo,
+      paymentUri: intent.paymentUri,
       qr: intent.qr,
-      status: intent.status,
+      network: this.rail.network,
+      status: 'pending',
       isMock: intent.isMock,
     }
   }
 
   async confirmTopUpPayment(missionId: string, intentId: string, txHash: string) {
-    const mission = await this.repo.findById(missionId)
-    if (!mission) throw new Error(`Misión ${missionId} no encontrada`)
+    const mission = await this.load(missionId)
 
     const topup = mission.topups.find((t) => t.intentId === intentId)
-    if (!topup) throw new Error(`Recarga con intención ${intentId} no encontrada`)
-
+    if (!topup) throw new Error(`Top-up for intent ${intentId} not found`)
     if (topup.status === 'settled' && topup.txHash) {
-      return { valid: true, status: 'settled', txHash: topup.txHash }
+      return { valid: true, status: 'settled', txHash: topup.txHash, explorerUrl: topup.explorerUrl }
+    }
+    if (this.isLiveMode() && !this.rail.isLive) {
+      throw unavailable('payments are simulated; configure a live payment rail for live mode')
     }
 
-    if (this.isLiveMode() && this.cosmoPay.isMock) {
-      const err = new Error('503: Servicio CosmoPay no disponible en modo live')
-      ;(err as unknown as { statusCode: number }).statusCode = 503
-      throw err
-    }
-
-    const result = await this.cosmoPay.validateTx(intentId, txHash)
-    if (!result.valid) {
-      throw new Error(`Pago de recarga inválido: ${result.status}`)
-    }
-
-    if (this.channelPort?.topUp && mission.channelId) {
-      try {
-        const rawAmount = BigInt(Math.round(topup.amountUsdc * 1e7))
-        await this.channelPort.topUp({ channel: mission.channelId, amountRaw: rawAmount })
-      } catch {
-        // Fallback
-      }
-    }
+    const result = await this.rail.confirmDeposit({
+      missionId,
+      intentId,
+      txHash,
+      purpose: 'topup',
+      channelId: mission.channelId,
+    })
+    if (!result.valid) throw new Error(`Top-up was not accepted: ${result.reason}`)
 
     if (mission.iccid) {
       try {
         const amountCents = Math.max(1, Math.round(topup.amountUsdc * 100))
         await this.connectivity.topUp(mission.iccid, amountCents)
       } catch {
-        // Safe fallback
+        // The eSIM wallet catches up on the next funding pass.
       }
     }
 
     topup.status = 'settled'
-    topup.txHash = txHash
+    topup.txHash = result.txHash
+    topup.explorerUrl = result.explorerUrl
     mission.balanceUsdc += topup.amountUsdc
     mission.budgetUsdc += topup.amountUsdc
     if (mission.status === 'paused' && mission.balanceUsdc > 0) {
@@ -529,48 +417,61 @@ export class MissionProductService {
     }
 
     await this.repo.save(mission)
-    return { valid: true, status: 'settled', txHash, balanceUsdc: mission.balanceUsdc }
+    return {
+      valid: true,
+      status: 'settled',
+      txHash: result.txHash,
+      explorerUrl: result.explorerUrl,
+      balanceUsdc: mission.balanceUsdc,
+    }
   }
 
   async finishMission(missionId: string) {
-    const mission = await this.repo.findById(missionId)
-    if (!mission) throw new Error(`Misión ${missionId} no encontrada`)
-
-    if (this.isLiveMode() && (!this.hasChannelReal || !this.channelPort)) {
-      const err = new Error('503: Canal Soroban o credenciales de cierre no disponibles en modo live (falta CHANNEL_CONTRACT o SIGNER_SECRET)')
-      ;(err as unknown as { statusCode: number }).statusCode = 503
-      throw err
+    const mission = await this.load(missionId)
+    if (!mission.channelId) throw new Error('This mission has no payment channel to close')
+    if (this.isLiveMode() && !this.rail.isLive) {
+      throw unavailable('payments are simulated; configure a live payment rail for live mode')
     }
 
-    let closeTxHash = `close_tx_${Date.now()}`
-    if (this.channelPort?.closeStart && mission.channelId) {
-      try {
-        const res = await this.channelPort.closeStart({ channel: mission.channelId })
-        closeTxHash = res.txHash
-      } catch {
-        // Fallback
-      }
+    const outcome = await this.rail.closeChannel(mission.channelId)
+    if (outcome.kind === 'failed' || outcome.kind === 'blocked') {
+      throw new Error(`Could not close the payment channel: ${outcome.detail}`)
     }
 
     if (mission.iccid) {
       try {
         await this.connectivity.refundUnused(mission.iccid)
       } catch {
-        // Fallback
+        // The eSIM wallet is reconciled by the session closer.
       }
     }
 
     mission.status = 'completed'
     mission.esimStatus = 'disabled'
-    mission.closeTxHash = closeTxHash
+    if (outcome.kind === 'nothing_to_close') {
+      mission.settledUsdc = 0
+      mission.refundedUsdc = mission.budgetUsdc
+    } else {
+      mission.closeTxHash = outcome.txHash
+      mission.closeExplorerUrl = outcome.explorerUrl
+      mission.settledUsdc = rawToUsdc(outcome.settledRaw)
+      if (outcome.kind === 'closed') mission.refundedUsdc = rawToUsdc(outcome.refundedRaw)
+    }
     await this.repo.save(mission)
 
-    return { txHash: closeTxHash, status: 'completed' }
+    return {
+      status: 'completed',
+      closeKind: outcome.kind,
+      txHash: mission.closeTxHash,
+      explorerUrl: mission.closeExplorerUrl,
+      settledUsdc: mission.settledUsdc,
+      refundedUsdc: mission.refundedUsdc,
+    }
   }
 
-  private getOrCreateMeterService(mission: ProductMission): IntegratedMeterService {
-    let meterService = this.meters.get(mission.id)
-    if (meterService) return meterService
+  private getOrCreateMeterService(mission: ProductMission, channelId: string): IntegratedMeterService {
+    const existing = this.meters.get(mission.id)
+    if (existing) return existing
 
     let session = this.sessions.get(mission.id)
     if (!session) {
@@ -578,41 +479,27 @@ export class MissionProductService {
         id: `ses_${mission.id}`,
         userId: mission.userId,
         iccid: mission.iccid || `iccid_${mission.id}`,
-        channelId: mission.channelId || process.env.CHANNEL_CONTRACT || demoChannelId(mission.id),
+        channelId,
       })
       this.sessions.set(mission.id, session)
     }
 
-    // Tarifa: PRICE_PER_MB_RAW si está definida; si no, la del destino (la
-    // misma que muestra la app). Los vales cobran la misma tarifa por MiB,
-    // salvo con el agente real, que tiene su propio PRICE_PER_MIB_RAW.
+    // Rate: PRICE_PER_MB_RAW when set; otherwise the destination's own rate,
+    // the one the app shows. Vouchers bill the same rate per MiB.
     const pricePerMbRaw = envRaw('PRICE_PER_MB_RAW') ?? usdcToRaw(mission.destination.pricePerMbUsdc)
-    const voucherPricePerMibRaw = (this.hasVoucherAgentReal ? envRaw('PRICE_PER_MIB_RAW') : undefined)
-      ?? pricePerMibFromPerMbRaw(pricePerMbRaw)
-
-    const missionId = mission.id
-    this.depositsRaw.set(missionId, usdcToRaw(mission.budgetUsdc))
-    const depositRaw = () => this.depositsRaw.get(missionId) ?? 0n
-
-    const balancePort: ChannelBalancePort = this.balancePort || {
-      async getChannelBalance() {
-        return depositRaw()
-      },
+    const rail = this.rail
+    const balancePort: ChannelBalancePort = {
+      getChannelBalance: (id) => rail.getChannelDepositRaw(id),
     }
 
-    const voucherPort = this.voucherPort ?? this.createOfflineVoucherPort?.(depositRaw)
-    if (!voucherPort) {
-      throw new Error('VoucherPort no inyectado en MissionProductService')
-    }
-
-    meterService = new IntegratedMeterService({
+    const meterService = new IntegratedMeterService({
       session,
       provider: this.connectivity,
       balancePort,
-      voucherPort,
-      network: this.network,
+      voucherPort: rail.voucherPortFor(channelId),
+      network: rail.network,
       pricePerMbRaw,
-      voucherPricePerMibRaw,
+      voucherPricePerMibRaw: pricePerMibFromPerMbRaw(pricePerMbRaw),
     })
 
     this.meters.set(mission.id, meterService)
@@ -621,34 +508,25 @@ export class MissionProductService {
 
   async processDemoTraffic(missionId: string, bytes: number) {
     if (process.env.ENABLE_DEMO_TRAFFIC !== 'true') {
-      throw new Error('La inyección de tráfico de prueba no está habilitada en el servidor')
+      throw new Error('Demo traffic injection is not enabled on this server')
     }
 
-    const mission = await this.repo.findById(missionId)
-    if (!mission) throw new Error(`Misión ${missionId} no encontrada`)
-
-    if (mission.status !== 'active' || mission.esimStatus !== 'active') {
-      throw new Error('No se puede inyectar tráfico a una misión inactiva o pausada')
+    const mission = await this.load(missionId)
+    if (mission.status !== 'active' || mission.esimStatus !== 'active' || !mission.channelId) {
+      throw new Error('Traffic can only be injected into an active mission')
+    }
+    if (this.isLiveMode() && (!this.rail.isLive || !this.hasCitrusReal)) {
+      throw unavailable('live mode needs both a live payment rail and Citrus Mobile to meter traffic')
     }
 
-    if (this.isLiveMode() && (!this.hasVoucherAgentReal || !this.hasChannelReal || !this.hasCitrusReal)) {
-      const err = new Error('503: Toda la cadena real (Voucher Agent, Soroban Channel y Citrus) debe estar disponible en modo live para procesar tráfico')
-      ;(err as unknown as { statusCode: number }).statusCode = 503
-      throw err
-    }
-
-    const meterService = this.getOrCreateMeterService(mission)
-    this.depositsRaw.set(mission.id, usdcToRaw(mission.budgetUsdc))
+    const meterService = this.getOrCreateMeterService(mission, mission.channelId)
     const result = await meterService.processTraffic(bytes)
 
     const currentBytes = BigInt(mission.meteredBytes || '0') + BigInt(bytes)
-    const meteredBytesStr = currentBytes.toString()
-    mission.meteredBytes = meteredBytesStr
+    mission.meteredBytes = currentBytes.toString()
 
-    const totalBytesNum = Number(meteredBytesStr)
-    const totalMb = totalBytesNum / 1_000_000
+    const totalMb = Number(currentBytes) / 1_000_000
     const costUsdc = totalMb * mission.destination.pricePerMbUsdc
-
     mission.consumedMb = parseFloat(totalMb.toFixed(2))
     mission.consumedUsdc = parseFloat(costUsdc.toFixed(6))
     mission.balanceUsdc = Math.max(0, parseFloat((mission.budgetUsdc - costUsdc).toFixed(6)))
@@ -664,7 +542,6 @@ export class MissionProductService {
     let remaining: string | undefined
     let reused: boolean | undefined
     let meterReadingId: string | undefined
-
     if (result.voucher.kind === 'signed') {
       cumulativeAmount = result.voucher.envelope.voucher.cumulativeAmount
       remaining = result.voucher.envelope.remaining
@@ -674,15 +551,10 @@ export class MissionProductService {
       remaining = result.voucher.envelope.remaining
     }
 
-    const actionApplied = {
-      ...result.actionApplied,
-      remainingRaw: result.actionApplied.remainingRaw.toString(),
-    }
-
     return {
       bytes,
       meterStatus: result.meterStatus,
-      actionApplied,
+      actionApplied: { ...result.actionApplied, remainingRaw: result.actionApplied.remainingRaw.toString() },
       voucher: result.voucher,
       cumulativeAmount,
       remaining,

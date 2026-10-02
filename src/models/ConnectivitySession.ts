@@ -1,6 +1,6 @@
 // ConnectivitySession record (connectivity layer). One record per user trip:
 // the seam that ties the Citrus eSIM (iccid — the account-level key) to the
-// Stellar channel (channelId) and to the micro-USD ledger the product cares
+// payment channel (channelId) and to the micro-USD ledger the product cares
 // about.
 //
 // Money bookkeeping (docs/citrus-mobile-spec.md v2 §7 R13, U2):
@@ -20,7 +20,7 @@ export type ConnectivitySession = {
   provider: ConnectivityProviderName;
   /** Citrus eSIM — the iccid is the account-level key. */
   iccid: string;
-  /** Stellar one-way channel this session spends against. */
+  /** One-way payment channel this session spends against (see src/rails/). */
   channelId: string;
   /** Lifetime charged read, micro-USD (provider accumulation, U2). */
   chargedMicroUsd: bigint;

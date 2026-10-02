@@ -20,6 +20,7 @@ export type TopUpRecord = {
   intentId: string
   amountUsdc: number
   txHash?: string
+  explorerUrl?: string
   status: 'pending' | 'settled'
   createdAt: string
 }
@@ -48,6 +49,8 @@ export type ProductMission = {
   paymentStatus: 'pending' | 'paid' | 'failed'
   paymentIntentId?: string
   depositTxHash?: string
+  depositExplorerUrl?: string
+  /** Payment channel opened by the deposit (format depends on the rail). */
   channelId?: string
   iccid?: string
   esim?: PublicEsimInfo
@@ -59,23 +62,26 @@ export type ProductMission = {
   consumedMb: number
   topups: TopUpRecord[]
   closeTxHash?: string
+  closeExplorerUrl?: string
+  /** Settled to AstroAm when the channel closed, in USDC. */
+  settledUsdc?: number
+  /** Returned to the traveler when the channel closed, in USDC. */
+  refundedUsdc?: number
   createdAt: string
   updatedAt: string
 }
 
 export type Capabilities = {
   backendAvailable: boolean
+  /** `<chain>:<name>` of the payment rail, e.g. "monad:testnet". */
   network: string
-  stage: number
-  channelConfigured: boolean
-  voucherAgentAvailable: boolean
-  paymentServerReady: boolean
-  voucherAgentReady: boolean
+  /** Human name of the payment rail, e.g. "Monad testnet". */
+  paymentRail: string
+  /** false while payments are simulated (FakeRail). */
+  paymentsLive: boolean
   channelReady: boolean
   citrusReady: boolean
   connectivityProvider: 'fake' | 'citrus'
-  cosmoPayStatus: 'live' | 'mock' | 'unavailable'
-  cosmoPayMode: 'live' | 'mock' | 'unavailable'
   citrusStatus: 'live' | 'unavailable'
   meteringMode: 'real' | 'demo' | 'unavailable'
   reconciliationAvailable: boolean

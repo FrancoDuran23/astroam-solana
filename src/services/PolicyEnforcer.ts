@@ -16,13 +16,14 @@
 //
 // Balance semantics (unchanged since the original enforcer): `getChannelBalance`
 // returns the channel's CUMULATIVE DEPOSIT in raw units (1e-7 USDC) — NOT a
-// remaining balance. The real adapter is `createStellarChannelBalanceAdapter`
-// (`src/meter/meter-service.ts`). `costRaw` is computed from the trip's
+// remaining balance. It comes from the payment rail
+// (`PaymentRail.getChannelDepositRaw`, src/rails/). `costRaw` is computed from the trip's
 // EQUIVALENT accounting bytes (spec §6.2 — the bytes the agent bills, which
 // derive from the provider's charged micro-USD); `remaining = deposit − cost`,
 // the same basis the agent uses for M2 `remaining` (deposit − highest signed
-// amount). On-chain `balance()` must NOT be used here (it drops on every
-// server `settle()`; subtracting cumulative cost from it would double-count).
+// amount). A channel's live on-chain balance must NOT be used here (it drops
+// on every partial settlement; subtracting cumulative cost from it would
+// double-count).
 //
 // Dropped in the rework (R8): the low-balance watermark and `set_data_limit`
 // (data limits are delegated to the eSIM wallet, the cap is the prepaid amount
@@ -40,7 +41,7 @@ export const BYTES_PER_MB = 1_000_000n;
 /** Suggested cadence for the enforcement loop (the task's "setInterval 5s"). */
 export const ENFORCER_INTERVAL_MS_DEFAULT = 5_000;
 
-/** Port into the Stellar channel component: returns the channel's cumulative
+/** Port into the payment channel: returns the channel's cumulative
  * deposit in raw units (see "Balance semantics" above). Stub by default. */
 export type ChannelBalancePort = {
   getChannelBalance(channelId: string): Promise<bigint>;
@@ -49,9 +50,9 @@ export type ChannelBalancePort = {
 export const STUB_CHANNEL_BALANCE_PORT: ChannelBalancePort = {
   async getChannelBalance(_channelId: string): Promise<bigint> {
     throw new Error(
-      "getChannelBalance STUB: conectar contra el componente Stellar (canal " +
-      "one-way de la sesión) antes del MVP — se espera el depósito acumulado " +
-      "en raw units (ver createStellarChannelBalanceAdapter).",
+      "getChannelBalance STUB: conectar contra el riel de pago de la cadena " +
+      "(PaymentRail.getChannelDepositRaw) — se espera el depósito acumulado " +
+      "del canal en raw units.",
     );
   },
 };

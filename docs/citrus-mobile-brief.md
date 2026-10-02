@@ -1,6 +1,10 @@
 # Citrus Mobile: brief para reemplazar Telnyx
 
-Objetivo: reemplazar la infraestructura de conectividad de Telnyx por Citrus Mobile en la app de eSIM + micropagos USDC en Stellar. Implementar Citrus detrás de la interfaz `ConnectivityProvider`, sin atar la lógica de Stellar al proveedor.
+> **Nota:** este documento se escribió cuando la base de AstroAm cobraba en
+> Stellar. Hoy la parte de pagos pasa por el riel de pago de cada cadena
+> (`src/rails/PaymentRail.ts`); todo lo de Citrus sigue vigente.
+
+Objetivo: reemplazar la infraestructura de conectividad de Telnyx por Citrus Mobile en la app de eSIM + micropagos USDC on-chain. Implementar Citrus detrás de la interfaz `ConnectivityProvider`, sin atar la lógica de Stellar al proveedor.
 
 ## Fuentes
 
@@ -89,7 +93,7 @@ Objetivo: reemplazar la infraestructura de conectividad de Telnyx por Citrus Mob
 1. **Retraso de reporte de ~10 a 15 min.** `fund` responde al instante y el usuario ya puede usar datos. Pero `total_data_charged_usd` y los eventos de saldo se pausan ~15 min después de cada fund. El consumo igual se cuenta y aparece en el siguiente ciclo.
 2. **`wallet_balance_usd` se redondea hacia abajo**, hasta ~5¢ por debajo del saldo real. Fondear $20 muestra $19.99. Montos como $9, $18 y $27 dan exacto.
 3. **No hay endpoint de consumo en bytes.** El consumo llega solo en USD. Pasar a bytes exige dividir por la tarifa del operador de `/rates` y es aproximado. Esto afecta la reconciliación entre bytes del gateway propio y el uso del carrier.
-4. **`defund` es asíncrono.** Devuelve 202, pausa los datos y acredita en ~15 min a la **cuenta reseller**, no al usuario final. Durante ese tiempo no se puede fondear ni reactivar la SIM. El monto final puede ser menor a `estimated_return_usd` si hubo consumo. La devolución al usuario se resuelve del lado de Stellar.
+4. **`defund` es asíncrono.** Devuelve 202, pausa los datos y acredita en ~15 min a la **cuenta reseller**, no al usuario final. Durante ese tiempo no se puede fondear ni reactivar la SIM. El monto final puede ser menor a `estimated_return_usd` si hubo consumo. La devolución al usuario se resuelve en el canal de pago on-chain.
 5. **`terminate` es irreversible y pierde el saldo restante.** Hacer `defund` antes.
 6. **Los grupos no sirven para facturar por usuario.** Una SIM en un grupo no tiene wallet propia (`wallet_balance_usd` y `total_data_charged_usd` vienen `null`). Usar una eSIM standalone por usuario.
 7. **`esim.balance_low` es fijo en $5** y no configurable. Con el retraso de 10 a 15 min, la política de recarga necesita colchón.
@@ -106,7 +110,7 @@ Objetivo: reemplazar la infraestructura de conectividad de Telnyx por Citrus Mob
 | `terminate` | `terminate` |
 | Corte por saldo | evento `esim.balance_depleted` |
 
-Flujo: el gateway mide bytes, el billing los pasa a precio, el voucher sube en Stellar y el operador fondea la SIM en tramos por adelantado. El flotante lo cubre el saldo de la cuenta reseller.
+Flujo: el gateway mide bytes, el billing los pasa a precio, el vale se firma sobre el canal de pago y el operador fondea la SIM en tramos por adelantado. El flotante lo cubre el saldo de la cuenta reseller.
 
 ## Sin verificar
 

@@ -1,9 +1,9 @@
 /**
- * Puerto del medidor hacia el agente de pagos: `POST /vouchers` (MPP, canal
- * one-way de Soroban).
+ * Puerto del medidor hacia el agente de pagos: `POST /vouchers` (vales
+ * acumulativos sobre el canal de pago de una sola vía del riel en uso).
  *
  * Es la única costura entre la capa de conectividad/medidor y la capa de
- * pagos (docs/sdd/payments-mpp.md §2.3.3/§2.3.4): un request HTTP con el
+ * pagos (src/rails/PaymentRail.ts): un request HTTP con el
  * mensaje 1 (M1), una respuesta con el mensaje 2 (M2). Los schemas y el
  * vocabulario de `reason` NO se duplican acá — se reusan de `src/shared/`
  * (`messages.ts`, `reasons.ts`, `money.ts`, `retry.ts`).
@@ -30,7 +30,7 @@ import {
 } from "../shared/messages.ts";
 import { computeExpectedAmountRaw } from "../shared/money.ts";
 import { RetryDeadlineExceededError, TimeoutError, withRetry, type RetryOptions } from "../shared/retry.ts";
-import type { Network } from "../shared/stellar/network.ts";
+import type { Network } from "../shared/network.ts";
 
 /** Puerto que consume `IntegratedMeterService`. Devuelve SIEMPRE un sobre M2
  * válido (firmado o no firmado); cualquier otra cosa (red caída, 401, 400,
@@ -61,7 +61,7 @@ export class VoucherTransportError extends Error {
 
 export type MeterReadingInput = {
   sessionId: string;
-  /** Contrato del canal one-way (C..., 56 chars) — `CHANNEL_CONTRACT`. */
+  /** Id del canal de pago, como lo formatea el riel en uso. */
   channel: string;
   network: Network;
   /** Bytes acumulados desde la apertura del canal (VE-R4), nunca un delta. */

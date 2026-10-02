@@ -6,7 +6,7 @@ import { createProductRouter } from './api/routes.ts'
 import { MissionProductService } from './services/MissionProductService.ts'
 import type { MissionRepository } from './persistence/MissionRepository.ts'
 import type { ProductMission } from './types/mission.ts'
-import { CosmoPayService } from '../services/CosmoPayService.ts'
+import { FakeRail } from '../rails/FakeRail.ts'
 import { FakeProvider } from '../providers/connectivity/FakeProvider.ts'
 import { type VoucherPort } from '../meter/voucher-port.ts'
 import type { Message1, Message2 } from '../shared/messages.ts'
@@ -43,7 +43,7 @@ class MockVoucherPort implements VoucherPort {
     if (this.mode === 'throw') {
       throw new Error('Agente de vouchers no disponible')
     }
-    const channel = m1.channel || 'CCW673TX665WFQGZ4EOT7OWT2H263IG65V27P432PQLQTF53D67HGF37'
+    const channel = m1.channel || '0x5FbDB2315678afecb367f032d93F642f64180aa3'
     if (this.mode === 'unsigned') {
       return {
         version: 1,
@@ -84,17 +84,20 @@ let service: MissionProductService
 
 before(async () => {
   const repo = new MemoryRepo()
-  const cosmoPay = new CosmoPayService() // Mock mode
   fakeProvider = new FakeProvider()
   mockVoucherPort = new MockVoucherPort()
+  // FakeRail for deposits and the channel; vouchers go to the mock so each
+  // test controls the agent's answer (signed / unsigned / throw).
+  class RecordingRail extends FakeRail {
+    voucherPortFor(): VoucherPort {
+      return mockVoucherPort
+    }
+  }
   service = new MissionProductService({
     repo,
-    cosmoPay,
     connectivity: fakeProvider,
-    voucherPort: mockVoucherPort,
+    rail: new RecordingRail(),
     hasCitrusReal: true,
-    hasChannelReal: true,
-    hasVoucherAgentReal: true,
   })
 
   const app = express()
@@ -123,7 +126,7 @@ test('GET /api/capabilities returns detailed readiness without leaking secrets',
   const body = (await res.json()) as Record<string, unknown>
   assert.equal(body.backendAvailable, true)
   assert.equal(typeof body.network, 'string')
-  assert.equal(typeof body.paymentServerReady, 'boolean')
+  assert.equal(body.paymentsLive, false)
   assert.equal(Array.isArray(body.missingConfiguration), true)
   assert.equal(body.connectivityProvider, 'citrus')
 
@@ -251,7 +254,7 @@ test('Unsigned M2 does NOT credit paid quota', async () => {
   assert.equal(trafficBody.meterStatus.paidQuotaBytes, 0)
 })
 
-test('Live mode fail-closed checks & 503 on unavailable voucher agent in live mode', async () => {
+test('Live mode requires the access token on mutable routes', async () => {
   process.env.ASTROAM_LIVE_ENABLED = 'true'
   process.env.FRONTEND_ORIGIN = 'http://localhost:5173'
   process.env.ASTROAM_DEMO_ACCESS_TOKEN = 'test_token'

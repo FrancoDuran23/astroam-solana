@@ -1,11 +1,11 @@
 /**
- * Servidor / Integrador del Medidor con la Política de Corte y el Estado del Canal de Stellar.
+ * Servidor / Integrador del Medidor con la Política de Corte y el Estado del Canal de pago.
  *
  * Une:
  * - NetworkDataMeter (Medidor de tráfico en tiempo real — hoy, el accounting local)
  * - VoucherPort (POST /vouchers del agente de pagos MPP — src/meter/voucher-port.ts)
  * - PolicyEnforcer (Reglas de decisión y cortes sobre la eSIM, docs/citrus-mobile-spec.md v2 §7 R8)
- * - ChannelBalancePort (Adaptador con la red de Stellar/Soroban)
+ * - ChannelBalancePort (depósito del canal, provisto por el riel de pago de la cadena)
  *
  * Regla central: la cuota del medidor SOLO se acredita con un vale firmado
  * (`status: "signed"`, nuevo o `reused`) que cubra el acumulado medido. Un
@@ -31,29 +31,10 @@ import {
 } from "../services/PolicyEnforcer.ts";
 import type { ConnectivityProvider } from "../providers/connectivity/ConnectivityProvider.ts";
 import type { ConnectivitySession } from "../models/ConnectivitySession.ts";
-import type { ChannelStatePort } from "../server/channel-service.ts";
 import type { Message2Signed, Message2Unsigned } from "../shared/messages.ts";
 import { arePricesAligned, pricePerMibFromPerMbRaw } from "../shared/money.ts";
-import type { Network } from "../shared/stellar/network.ts";
+import type { Network } from "../shared/network.ts";
 import { buildMessage1, type VoucherPort } from "./voucher-port.ts";
-
-/**
- * Adaptador que convierte un ChannelStatePort de Stellar/Soroban
- * en el ChannelBalancePort que consume PolicyEnforcer.
- */
-export function createStellarChannelBalanceAdapter(
-  channelStatePort: ChannelStatePort,
-): ChannelBalancePort {
-  return {
-    async getChannelBalance(channelId: string): Promise<bigint> {
-      const info = await channelStatePort.getChannelInfo(channelId);
-      if (!info.found) {
-        throw new Error(`Canal de Stellar no encontrado en la red: ${channelId}`);
-      }
-      return info.depositRaw;
-    },
-  };
-}
 
 export interface MeterServiceOptions {
   session: ConnectivitySession;
@@ -61,7 +42,7 @@ export interface MeterServiceOptions {
   balancePort: ChannelBalancePort;
   /** POST /vouchers del agente: sin vale firmado no se acredita cuota. */
   voucherPort: VoucherPort;
-  /** Red Stellar del canal (`STELLAR_NETWORK`), viaja en el M1. */
+  /** Red del canal (`<cadena>:<nombre>`, p. ej. "monad:testnet"), viaja en el M1. */
   network: Network;
   /**
    * `PRICE_PER_MIB_RAW` del agente (raw units por MiB = 1_048_576 bytes).
@@ -211,7 +192,7 @@ export class IntegratedMeterService {
   /**
    * Registra una ráfaga de tráfico en el medidor, pide el vale acumulativo
    * al agente de pagos y ejecuta la evaluación de políticas contra el
-   * depósito del canal en Stellar y la eSIM. La cuota del medidor solo se
+   * depósito del canal de pago y la eSIM. La cuota del medidor solo se
    * acredita si el agente firmó (o reusó) un vale que la cubra.
    */
   public async processTraffic(bytesTransferred: number): Promise<MeterRunResult> {
@@ -221,7 +202,7 @@ export class IntegratedMeterService {
     // 2. Pedir el vale acumulativo que cubre el consumo medido (POST /vouchers)
     const voucher = await this.requestVoucher(cumulativeBytes);
 
-    // 3. Consultar el depósito del canal de Stellar y evaluar la política
+    // 3. Consultar el depósito del canal de pago y evaluar la política
     const balanceRaw = await this.balancePort.getChannelBalance(this.session.channelId);
     const costRaw = computeCostRaw(BigInt(cumulativeBytes), this.pricePerMbRaw);
     const action = decidePolicy({ balanceRaw, costRaw, pricePerMbRaw: this.pricePerMbRaw });

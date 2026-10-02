@@ -21,7 +21,7 @@ test("unsignedResponse maps a 503 reason with Retry-After: 5 (FC-R5)", async () 
   const response = unsignedResponse("upstream_unavailable", {
     sessionId: null,
     meterReadingId: null,
-    detail: "Soroban RPC unreachable",
+    detail: "chain RPC unreachable",
   });
   assert.equal(response.status, 503);
   assert.equal(response.headers.get("retry-after"), "5");

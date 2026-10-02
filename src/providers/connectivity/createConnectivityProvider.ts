@@ -23,7 +23,7 @@ export type ConnectivityEnv = {
   CITRUS_BASE_URL?: string;
   CITRUS_WEBHOOK_SECRET?: string;
   PRICE_PER_MB_RAW: bigint;
-  STELLAR_NETWORK: string;
+  NETWORK: string;
   DATA_DIR: string;
   CITRUS_REQUEST_TIMEOUT_MS?: number;
 };
@@ -35,7 +35,7 @@ export type ConnectivityBundle = {
 };
 
 export function createConnectivityProvider(env: ConnectivityEnv): ConnectivityBundle {
-  const esimStore = openEsimStore(esimRecordPath(env.DATA_DIR, env.STELLAR_NETWORK));
+  const esimStore = openEsimStore(esimRecordPath(env.DATA_DIR, env.NETWORK));
 
   if (env.CONNECTIVITY_PROVIDER === "fake" || env.CONNECTIVITY_PROVIDER === undefined) {
     return { kind: "fake", provider: new FakeProvider(), esimStore };
