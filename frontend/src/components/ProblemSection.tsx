@@ -40,7 +40,7 @@ export default function ProblemSection() {
             EL ROAMING TRADICIONAL CONSUME MÁS DE LO QUE NECESITÁS.
           </h2>
           <p className="text-base sm:text-lg text-textsecondary leading-relaxed">
-            Las operadoras antiguas te obligan a comprar paquetes cerrados y rígidos. La nave ASTROAM sortea los asteroides del modelo obsoleto con vuelo ágil y micropagos autónomos.
+            Las operadoras antiguas te obligan a comprar paquetes cerrados y rígidos. ASTROAM deposita USDC una vez en Solana y cierra una sola vez por lo que consumiste.
           </p>
         </div>
 

@@ -23,6 +23,12 @@ export const createMissionSchema = z.object({
 export const paymentConfirmationSchema = z.object({
   intentId: z.string().min(1),
   txHash: z.string().min(1),
+  traveler: z.string().min(32).max(44).optional(),
+})
+
+export const closeConfirmationSchema = z.object({
+  txHash: z.string().min(1),
+  settlement: z.enum(['close', 'timeout_refund']).optional().default('close'),
 })
 
 export const topupIntentSchema = z.object({

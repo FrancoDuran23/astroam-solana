@@ -89,7 +89,7 @@ export class ApiMissionService {
       consumedUsdc: 0,
       consumedMb: 0,
       esimStatus: 'not_provisioned',
-      network: 'stellar:testnet',
+      network: 'solana:devnet',
       channelId: '',
       createdAt: new Date().toISOString(),
     }
@@ -106,12 +106,12 @@ export class ApiMissionService {
     return handleResponse<PaymentIntentInfo>(res)
   }
 
-  async confirmPayment(missionId: string, intentId: string, txHash: string): Promise<PaymentConfirmationResult> {
+  async confirmPayment(missionId: string, intentId: string, txHash: string, traveler?: string): Promise<PaymentConfirmationResult> {
     const res = await fetch(`${this.baseUrl}/missions/${missionId}/payment-confirmation`, {
       method: 'POST',
       headers: getAuthHeaders(),
       credentials: 'include',
-      body: JSON.stringify({ intentId, txHash }),
+      body: JSON.stringify({ intentId, txHash, traveler }),
     })
     return handleResponse<PaymentConfirmationResult>(res)
   }
@@ -185,6 +185,16 @@ export class ApiMissionService {
       body: JSON.stringify({ intentId, txHash }),
     })
     return handleResponse<PaymentConfirmationResult & { balanceUsdc?: number }>(res)
+  }
+
+  async confirmClose(missionId: string, txHash: string, settlement: 'close' | 'timeout_refund'): Promise<FinishResult> {
+    const res = await fetch(`${this.baseUrl}/missions/${missionId}/close`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      credentials: 'include',
+      body: JSON.stringify({ txHash, settlement }),
+    })
+    return handleResponse<FinishResult>(res)
   }
 
   async finishMission(missionId: string): Promise<FinishResult> {

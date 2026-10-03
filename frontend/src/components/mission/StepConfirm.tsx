@@ -39,7 +39,7 @@ export default function StepConfirm({ data, onBack, onConfirm }: Props) {
         <Row label="PRECIO EST./MB" value={`${(destination.pricePerMbUsdc * 1000).toFixed(1)} mUSDC`} mono />
         <Row label="DATOS EST." value={fmtMb(estimatedMb)} accent="text-tealbrand" />
         <Row label="COBERTURA" value={destination.coverage} />
-        <Row label="RED" value="Stellar Testnet" accent="text-primaryviolet" mono />
+        <Row label="RED" value="Solana Devnet" accent="text-primaryviolet" mono />
       </div>
 
       {/* Options summary */}

@@ -16,7 +16,7 @@ export default function Hero() {
           <div className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-white border border-cardborder shadow-sm">
             <span className="w-2 h-2 rounded-full bg-tealbrand animate-pulse" />
             <span className="font-mono text-xs font-semibold text-tealbrand tracking-wider uppercase">
-              ROAMING INTELIGENTE · POWERED BY STELLAR
+              ROAMING INTELIGENTE · SOLANA DEVNET
             </span>
           </div>
 
@@ -30,7 +30,7 @@ export default function Hero() {
 
           {/* Subtitle */}
           <p className="text-lg md:text-xl text-textsecondary max-w-xl font-normal leading-relaxed">
-            Viajá conectado y pagá únicamente por los datos que realmente consumís. Sin contratos rígidos ni paquetes inflados. Tu conexión fluye con la velocidad y economía de la red Stellar.
+            Viajá conectado y pagá únicamente por los datos que realmente consumís. Sin contratos rígidos ni paquetes inflados. El depósito queda en un escrow de USDC en Solana devnet.
           </p>
 
           {/* CTA buttons */}
@@ -90,7 +90,7 @@ export default function Hero() {
                 <span className="font-mono text-xs font-bold text-textprimary uppercase tracking-wider">CONEXIÓN LISTA</span>
               </div>
               <span className="px-3 py-1 rounded-full bg-primaryviolet-light text-primaryviolet font-mono text-[11px] font-semibold tracking-wide">
-                Liquidación en Stellar
+                Liquidación en Solana
               </span>
             </div>
 

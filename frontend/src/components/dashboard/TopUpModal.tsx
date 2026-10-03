@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useMission } from '../../hooks/useMission'
+import { topUpUsdc, walletError } from '../../chain/solana'
 import type { PaymentIntentInfo } from '../../types/mission'
 
 type Props = {
@@ -10,7 +11,6 @@ export default function TopUpModal({ onClose }: Props) {
   const { isDemoMode, createTopUpIntent, confirmTopUpPayment, actionLoading } = useMission()
   const [amount, setAmount] = useState(5)
   const [intent, setIntent] = useState<PaymentIntentInfo | null>(null)
-  const [txHashInput, setTxHashInput] = useState('')
   const [error, setError] = useState<string | null>(null)
 
   async function handleStartTopUp() {
@@ -28,15 +28,15 @@ export default function TopUpModal({ onClose }: Props) {
     }
   }
 
-  async function handleConfirmTopUp() {
-    if (!intent) return
+  async function handleSolanaTopUp() {
+    if (!intent?.solana) return
     setError(null)
     try {
-      const txHash = txHashInput.trim() || `tx_${Date.now().toString(16)}`
-      await confirmTopUpPayment(intent.intentId, txHash, amount)
+      const { signature } = await topUpUsdc(intent.solana)
+      await confirmTopUpPayment(intent.intentId, signature, amount)
       onClose()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al confirmar pago de recarga')
+      setError(walletError(e))
     }
   }
 
@@ -56,7 +56,7 @@ export default function TopUpModal({ onClose }: Props) {
         <div className="flex items-center justify-between">
           <div>
             <h3 className="font-display text-xl font-bold text-textprimary">Recargar saldo</h3>
-            <p className="text-xs text-textsecondary mt-0.5">Agregá USDC a tu misión activa vía CosmoPay</p>
+            <p className="text-xs text-textsecondary mt-0.5">Agregá USDC al escrow de la misión en Solana devnet</p>
           </div>
           <button
             type="button"
@@ -116,7 +116,7 @@ export default function TopUpModal({ onClose }: Props) {
             <div className="flex items-center gap-2 p-3 rounded-xl bg-primaryviolet-light border border-primaryviolet/20">
               <span className="material-symbols-outlined text-sm text-primaryviolet">hub</span>
               <p className="font-mono text-[10px] font-bold text-primaryviolet tracking-wider">
-                {isDemoMode ? 'CUSTODIA STELLAR — MODO DEMO' : 'DEPÓSITO DE RECARGA COSMOPAY'}
+                {isDemoMode ? 'RECARGA DEMO — SIN RED' : 'RECARGA EN EL ESCROW DE SOLANA'}
               </p>
             </div>
 
@@ -135,47 +135,19 @@ export default function TopUpModal({ onClose }: Props) {
           /* Payment Intent Step in API Mode */
           <div className="flex flex-col gap-4 font-mono text-xs">
             <div className="p-4 bg-bglight rounded-2xl border border-cardborder text-center">
-              <span className="text-textsecondary text-[10px] block mb-1">PAGÁ TU RECARGA DE</span>
-              <span className="font-display text-xl font-bold text-primaryviolet">{intent.amount} {intent.asset}</span>
-              {intent.qr && (
-                <img src={intent.qr} alt="QR Recarga" className="w-36 h-36 mx-auto my-3 object-contain rounded-lg" />
-              )}
+              <span className="text-textsecondary text-[10px] block mb-1">RECARGÁ</span>
+              <span className="font-display text-xl font-bold text-primaryviolet">{intent.solana?.amountUsdc ?? intent.amount} USDC</span>
+              <p className="text-textsecondary mt-2">
+                {intent.solana?.deployed ? 'Phantom firma un top-up del mismo escrow.' : 'Sin desplegar. Corré npm run solana:deploy.'}
+              </p>
             </div>
-
-            {intent.sep7Uri && (
-              <a
-                href={intent.sep7Uri}
-                target="_blank"
-                rel="noreferrer"
-                className="py-2.5 px-4 rounded-xl bg-primaryviolet text-white text-center font-bold text-xs uppercase tracking-wider hover:bg-primaryviolet-hover transition-all"
-              >
-                ABRIR WALLET (SEP-7)
-              </a>
-            )}
-
-            <div>
-              <label className="block text-[11px] text-textsecondary mb-1">HASH DE TRANSACCIÓN</label>
-              <input
-                type="text"
-                value={txHashInput}
-                onChange={(e) => setTxHashInput(e.target.value)}
-                placeholder="0xtx_hash..."
-                className="w-full px-3 py-2 rounded-xl border border-cardborder text-xs text-textprimary focus:outline-none focus:border-primaryviolet"
-              />
-            </div>
-
             <button
               type="button"
-              disabled={actionLoading}
-              onClick={() => void handleConfirmTopUp()}
-              className="w-full py-3 rounded-full bg-tealbrand text-white font-bold text-xs uppercase tracking-wider hover:opacity-90 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
+              disabled={actionLoading || !intent.solana?.deployed}
+              onClick={() => void handleSolanaTopUp()}
+              className="w-full py-3 rounded-full bg-tealbrand text-white font-bold text-xs uppercase tracking-wider hover:opacity-90 disabled:opacity-40 transition-all"
             >
-              {actionLoading ? (
-                <span className="material-symbols-outlined text-sm animate-spin">refresh</span>
-              ) : (
-                <span className="material-symbols-outlined text-sm">check_circle</span>
-              )}
-              CONFIRMAR RECARGA EN SERVIDOR
+              {actionLoading ? 'ENVIANDO…' : 'RECARGAR CON PHANTOM'}
             </button>
           </div>
         )}

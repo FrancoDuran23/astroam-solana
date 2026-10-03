@@ -1,6 +1,6 @@
 // ── Core domain types for ASTROAM mission flow ──────────────────────────────
 
-export type Network = 'stellar:testnet' | 'stellar:pubnet'
+export type Network = 'solana:devnet' | 'stellar:testnet' | 'stellar:pubnet' | 'demo:local'
 
 export type MissionStatus =
   | 'pending_payment'
@@ -45,13 +45,17 @@ export type Mission = {
   status: MissionStatus
   paymentStatus?: 'pending' | 'paid' | 'failed'
   depositTxHash?: string
+  depositExplorerUrl?: string
+  escrowId?: string
+  travelerAddress?: string
+  closeExplorerUrl?: string
   // live state
   balanceUsdc: number      // remaining
   consumedUsdc: number
   consumedMb: number
   esimStatus: 'active' | 'paused' | 'disabled' | 'not_provisioned'
   network: Network
-  channelId: string        // Soroban channel id
+  channelId: string        // meter channel, or the escrow id once Solana is configured
   iccid?: string
   esim?: PublicEsimInfo
   isMock?: boolean
@@ -82,6 +86,31 @@ export type MissionState = {
   events: UsageEvent[]
 }
 
+export type SolanaDepositPlan = {
+  cluster: 'devnet'
+  rpcUrl: string
+  explorer: string
+  usdcMint: string
+  usdcDecimals: 6
+  tokenProgram: string
+  programId: string | null
+  payee: string | null
+  escrowId: string
+  amount: string
+  amountUsdc: string
+  timeoutSeconds: number
+  deployed: boolean
+}
+
+export type SolanaClosePlan = SolanaDepositPlan & {
+  cumulativeAmount: string
+  refundAtomic: string
+  usedUsdc: string
+  refundUsdc: string
+  traveler: string | null
+  messageBase64: string | null
+}
+
 export type PaymentIntentInfo = {
   intentId: string
   amount: string
@@ -89,20 +118,27 @@ export type PaymentIntentInfo = {
   sep7Uri?: string
   qr?: string
   destination?: string
+  payTo?: string
   status: string
   isMock: boolean
+  rail?: 'solana'
+  solana?: SolanaDepositPlan
 }
 
 export type PaymentConfirmationResult = {
   valid: boolean
   status: string
   depositTxHash?: string
+  explorerUrl?: string | null
 }
 
 export type FinishResult = {
   txHash?: string
-  status: 'closing' | 'refund_pending' | 'settling' | 'completed' | 'failed'
+  status: 'closing' | 'refund_pending' | 'settling' | 'completed' | 'failed' | 'awaiting_close'
   refundAmountUsdc?: number
+  explorerUrl?: string | null
+  settlement?: 'close' | 'timeout_refund'
+  solana?: SolanaClosePlan
 }
 
 export type BackendCapabilities = {
@@ -126,6 +162,15 @@ export type BackendCapabilities = {
   liveEnabled: boolean
   requiresAuth: boolean
   missingConfiguration: string[]
+  paymentRail?: string
+  solanaCluster?: 'devnet'
+  solanaRpcUrl?: string
+  solanaExplorer?: string
+  solanaUsdcMint?: string
+  solanaUsdcDecimals?: number
+  solanaProgramId?: string | null
+  solanaPayee?: string | null
+  solanaTimeoutSeconds?: number
 }
 
 // ── Wizard step state ────────────────────────────────────────────────────────

@@ -63,7 +63,7 @@ export default function FinalCTA() {
           <span>·</span>
           <span>SIN CARGOS SORPRESA</span>
           <span>·</span>
-          <span>100% STELLAR</span>
+          <span>SOLANA DEVNET</span>
         </div>
       </div>
     </section>

@@ -50,7 +50,13 @@ export type ProductMission = {
   paymentIntentId?: string
   depositTxHash?: string
   depositExplorerUrl?: string
-  /** Payment channel opened by the deposit (format depends on the rail). */
+  /** sha256("astroam-escrow:" + mission id), base58. Seeds the escrow PDA. */
+  escrowId?: string
+  /** Deposit in 6-decimal USDC atomic units. Not the 7-decimal Stellar raw amount. */
+  depositAtomic?: string
+  /** Traveler wallet that signed the deposit (base58). */
+  travelerAddress?: string
+  /** Payment channel opened by the deposit (the in-memory meter, or the escrow PDA). */
   channelId?: string
   iccid?: string
   esim?: PublicEsimInfo
@@ -67,6 +73,7 @@ export type ProductMission = {
   settledUsdc?: number
   /** Returned to the traveler when the channel closed, in USDC. */
   refundedUsdc?: number
+  settlement?: 'close' | 'timeout_refund'
   createdAt: string
   updatedAt: string
 }
@@ -90,4 +97,13 @@ export type Capabilities = {
   liveEnabled: boolean
   requiresAuth: boolean
   missingConfiguration: string[]
+  solanaCluster: 'devnet'
+  solanaRpcUrl: string
+  solanaExplorer: string
+  solanaUsdcMint: string
+  solanaUsdcDecimals: 6
+  solanaTokenProgram: string
+  solanaProgramId: string | null
+  solanaPayee: string | null
+  solanaTimeoutSeconds: number
 }

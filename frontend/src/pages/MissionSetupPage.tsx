@@ -9,6 +9,7 @@ import StepConfirm from '../components/mission/StepConfirm'
 import ActivationOverlay from '../components/mission/ActivationOverlay'
 import { useMission } from '../hooks/useMission'
 import { addDays, today } from '../utils/missionUtils'
+import { connectSolanaWallet, depositUsdc, solanaTxUrl, walletError } from '../chain/solana'
 import type { PaymentIntentInfo, WizardData, WizardStep } from '../types/mission'
 
 const STEP_LABELS = ['DESTINO', 'DURACIÓN', 'PRESUPUESTO', 'CONFIRMAR']
@@ -43,8 +44,9 @@ export default function MissionSetupPage() {
 
   // API Payment flow state
   const [paymentIntent, setPaymentIntent] = useState<PaymentIntentInfo | null>(null)
-  const [txHashInput, setTxHashInput] = useState('')
   const [paymentValidating, setPaymentValidating] = useState(false)
+  const [walletAddress, setWalletAddress] = useState<string | null>(null)
+  const [depositTx, setDepositTx] = useState<string | null>(null)
 
   function update(field: string, value: unknown) {
     setData((prev) => ({ ...prev, [field]: value }))
@@ -99,22 +101,32 @@ export default function MissionSetupPage() {
     }
   }
 
-  async function handleConfirmPaymentSubmit() {
-    if (!paymentIntent) return
+  async function handleConnectWallet() {
+    setError(null)
+    try {
+      setWalletAddress(await connectSolanaWallet())
+    } catch (e) {
+      setError(walletError(e))
+    }
+  }
+
+  async function handleDeposit() {
+    if (!paymentIntent?.solana) return
     setError(null)
     setPaymentValidating(true)
     try {
-      const txHash = txHashInput.trim() || `tx_${Date.now().toString(16)}`
-      const res = await confirmPayment(paymentIntent.intentId, txHash)
+      const { signature, traveler } = await depositUsdc(paymentIntent.solana)
+      setDepositTx(signature)
+      const res = await confirmPayment(paymentIntent.intentId, signature, traveler)
       if (res.valid) {
         setPaymentIntent(null)
         setActivating(true)
         await activate()
       } else {
-        setError('El pago no ha sido validado correctamente por el servidor.')
+        setError('El depósito no fue aceptado por el servidor.')
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al confirmar pago')
+      setError(walletError(e))
     } finally {
       setPaymentValidating(false)
     }
@@ -216,84 +228,76 @@ export default function MissionSetupPage() {
         )}
 
         {/* Payment Intent Modal / Section in API mode */}
-        {paymentIntent && (
-          <div className="flex flex-col gap-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-cardborder pb-4">
-              <div>
-                <span className="font-mono text-xs font-bold text-primaryviolet uppercase tracking-wider block mb-1">
-                  [ COSMOPAY // PAGO DE MISIÓN ]
-                </span>
-                <h3 className="font-display text-xl font-bold text-textprimary">
-                  Depositá {paymentIntent.amount} {paymentIntent.asset}
-                </h3>
-              </div>
-              {paymentIntent.isMock && (
-                <span className="self-start sm:self-auto px-2.5 py-1 rounded-full text-xs font-mono font-bold bg-amber-500/10 text-amber-600 border border-amber-500/20">
-                  PAGO MOCK
-                </span>
-              )}
+        {paymentIntent?.solana && (
+          <div className="flex flex-col gap-5">
+            <div className="border-b border-cardborder pb-4">
+              <span className="font-mono text-xs font-bold text-primaryviolet uppercase tracking-wider block mb-1">
+                [ SOLANA DEVNET // DEPÓSITO USDC ]
+              </span>
+              <h3 className="font-display text-xl font-bold text-textprimary">
+                Depositá {paymentIntent.solana.amountUsdc} USDC
+              </h3>
+              <p className="font-sans text-sm text-textsecondary mt-2">
+                Un solo depósito. El consumo se mide off-chain y un cierre paga lo usado y devuelve el resto. No hay un débito por cada MB.
+              </p>
             </div>
-
-            <div className="flex flex-col items-center gap-6">
-              {paymentIntent.qr && (
-                <div className="flex flex-col items-center justify-center p-4 bg-white rounded-2xl border border-cardborder shadow-sm w-full max-w-[280px]">
-                  <img src={paymentIntent.qr} alt="SEP-7 QR" className="w-56 h-56 object-contain rounded-lg mb-2" />
-                  <span className="font-mono text-[10px] text-textsecondary font-bold">ESCANEAR CON WALLET STELLAR</span>
-                </div>
-              )}
-
-              <div className="w-full flex flex-col gap-3 font-mono text-xs">
-                <div className="bg-bglight p-3.5 rounded-xl border border-cardborder">
-                  <span className="text-textsecondary block text-[10px]">MONTO INTENCIÓN</span>
-                  <span className="font-bold text-textprimary">{paymentIntent.amount} {paymentIntent.asset}</span>
-                </div>
-                {paymentIntent.destination && (
-                  <div className="bg-bglight p-3.5 rounded-xl border border-cardborder">
-                    <span className="text-textsecondary block text-[10px]">DESTINO DEPOSITARIO</span>
-                    <span className="font-bold text-textprimary text-[10px] break-all">{paymentIntent.destination}</span>
-                  </div>
-                )}
-                {paymentIntent.sep7Uri && (
-                  <a
-                    href={paymentIntent.sep7Uri}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="py-3 px-4 rounded-xl bg-primaryviolet text-white text-center font-bold text-xs uppercase tracking-wider hover:bg-primaryviolet-hover transition-all min-h-[48px] flex items-center justify-center"
-                  >
-                    ABRIR EN WALLET (SEP-7)
+            <div className="grid gap-3 font-mono text-xs">
+              <div className="bg-bglight p-3.5 rounded-xl border border-cardborder">
+                <span className="text-textsecondary block text-[10px]">RED</span>
+                <span className="font-bold text-textprimary">Solana Devnet</span>
+              </div>
+              <div className="bg-bglight p-3.5 rounded-xl border border-cardborder">
+                <span className="text-textsecondary block text-[10px]">USDC (6 DECIMALES)</span>
+                <a className="font-bold text-primaryviolet break-all" href={`${paymentIntent.solana.explorer}/address/${paymentIntent.solana.usdcMint}?cluster=devnet`} target="_blank" rel="noreferrer">
+                  {paymentIntent.solana.usdcMint}
+                </a>
+              </div>
+              <div className="bg-bglight p-3.5 rounded-xl border border-cardborder">
+                <span className="text-textsecondary block text-[10px]">PROGRAMA</span>
+                {paymentIntent.solana.programId ? (
+                  <a className="font-bold text-primaryviolet break-all" href={`${paymentIntent.solana.explorer}/address/${paymentIntent.solana.programId}?cluster=devnet`} target="_blank" rel="noreferrer">
+                    {paymentIntent.solana.programId}
                   </a>
+                ) : (
+                  <span className="font-bold text-alerta">Sin desplegar. Corré npm run solana:deploy y poné SOLANA_PROGRAM_ID en el servidor.</span>
                 )}
               </div>
             </div>
-
-            <div className="border-t border-cardborder pt-4">
-              <label className="block font-mono text-xs text-textsecondary mb-1">
-                HASH DE TRANSACCIÓN STELLAR (TX HASH)
-              </label>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <input
-                  type="text"
-                  value={txHashInput}
-                  onChange={(e) => setTxHashInput(e.target.value)}
-                  placeholder={paymentIntent.isMock ? '0xmock_tx_hash (Autogenerado si está vacío)' : 'Hash de la transacción real'}
-                  className="flex-1 px-4 py-3 rounded-xl border border-cardborder font-mono text-xs text-textprimary focus:outline-none focus:border-primaryviolet"
-                />
-                <button
-                  type="button"
-                  disabled={paymentValidating}
-                  onClick={() => void handleConfirmPaymentSubmit()}
-                  className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-tealbrand text-white font-mono text-xs font-bold uppercase tracking-wider hover:opacity-90 disabled:opacity-50 transition-all flex items-center justify-center gap-1.5 min-h-[48px]"
-                >
-                  {paymentValidating ? (
-                    <span className="material-symbols-outlined text-sm animate-spin">refresh</span>
-                  ) : (
-                    <span className="material-symbols-outlined text-sm">check_circle</span>
-                  )}
-                  CONFIRMAR PAGO
-                </button>
-              </div>
+            {walletAddress && (
+              <p className="font-mono text-[11px] text-textsecondary">
+                Wallet: <span className="text-textprimary font-bold">{walletAddress}</span>
+              </p>
+            )}
+            {depositTx && (
+              <a className="font-mono text-[11px] text-primaryviolet font-bold break-all" href={solanaTxUrl(depositTx)} target="_blank" rel="noreferrer">
+                Depósito en el explorer: {depositTx}
+              </a>
+            )}
+            <div className="flex flex-col sm:flex-row gap-3">
+              <button
+                type="button"
+                onClick={() => void handleConnectWallet()}
+                className="flex-1 py-3.5 rounded-xl border border-cardborder bg-white text-textprimary font-mono text-xs font-bold uppercase tracking-wider min-h-[48px]"
+              >
+                {walletAddress ? 'WALLET CONECTADA' : 'CONECTAR PHANTOM O SOLFLARE'}
+              </button>
+              <button
+                type="button"
+                disabled={paymentValidating || !paymentIntent.solana.deployed}
+                onClick={() => void handleDeposit()}
+                className="flex-1 py-3.5 rounded-xl bg-tealbrand text-white font-mono text-xs font-bold uppercase tracking-wider disabled:opacity-40 min-h-[48px]"
+              >
+                {paymentValidating ? 'ENVIANDO…' : 'DEPOSITAR USDC'}
+              </button>
             </div>
+            <p className="font-sans text-xs text-textsecondary">
+              En Phantom o Solflare elegí Devnet. Hace falta SOL de prueba para el fee y USDC de Circle en esta red (mint de arriba, 6 decimales).
+            </p>
           </div>
+        )}
+
+        {paymentIntent && !paymentIntent.solana && (
+          <p className="font-mono text-xs text-alerta">La API no devolvió un plan de depósito en Solana.</p>
         )}
 
         {/* Error */}

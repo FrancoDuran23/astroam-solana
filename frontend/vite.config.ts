@@ -1,8 +1,22 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { fileURLToPath } from 'node:url'
+
+const bufferEntry = fileURLToPath(new URL('./node_modules/buffer/index.js', import.meta.url))
 
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: {
+      buffer: bufferEntry,
+    },
+  },
+  optimizeDeps: {
+    include: ['buffer'],
+  },
+  define: {
+    global: 'globalThis',
+  },
   server: {
     port: 5173,
     // El backend sirve la API de misiones bajo /api y /health, /ready en la

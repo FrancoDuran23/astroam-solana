@@ -16,7 +16,7 @@ export default function Footer() {
 
         {/* Copyright */}
         <p className="text-xs text-textsecondary text-center md:text-left">
-          Conectividad soberana sin fronteras. Diseñado sobre Stellar Soroban y red Citrus Mobile.
+          Conectividad soberana sin fronteras. El pago corre en Solana devnet. La app base vino del build de Stellar.
         </p>
 
         {/* Nav links */}

@@ -3,6 +3,7 @@ import { envConfig } from '../config/env'
 import { demoMissionService } from '../services/DemoMissionService'
 import { apiMissionService } from '../services/ApiMissionService'
 import { DEMO_TRAFFIC_MB } from '../utils/missionUtils'
+import { closeEscrow, refundEscrow } from '../chain/solana'
 import type {
   BackendCapabilities,
   FinishResult,
@@ -140,7 +141,7 @@ export function useMission() {
     return apiMissionService.createPaymentIntent(current.id)
   }
 
-  const confirmPayment = async (intentId: string, txHash: string): Promise<PaymentConfirmationResult> => {
+  const confirmPayment = async (intentId: string, txHash: string, traveler?: string): Promise<PaymentConfirmationResult> => {
     if (!mission) throw new Error('No hay misión activa')
     setActionLoading(true)
     try {
@@ -150,7 +151,7 @@ export function useMission() {
         demoMissionService.saveState({ mission: updated, events })
         return { valid: true, status: 'paid', depositTxHash: txHash }
       }
-      const res = await apiMissionService.confirmPayment(mission.id, intentId, txHash)
+      const res = await apiMissionService.confirmPayment(mission.id, intentId, txHash, traveler)
       if (res.valid) {
         const fresh = await apiMissionService.getMission(mission.id)
         setMission(fresh)
@@ -248,10 +249,39 @@ export function useMission() {
         setEvents(newState.events)
         return { status: 'completed', txHash: '0xdemo_close_tx' }
       }
-      const res = await apiMissionService.finishMission(mission.id)
+      const quoted = await apiMissionService.finishMission(mission.id)
+      if (quoted.status === 'awaiting_close' && quoted.solana?.deployed && quoted.solana.messageBase64) {
+        const txHash = await closeEscrow(quoted.solana)
+        const confirmed = await apiMissionService.confirmClose(mission.id, txHash, 'close')
+        const fresh = await apiMissionService.getMission(mission.id)
+        setMission({ ...fresh, closeExplorerUrl: confirmed.explorerUrl ?? fresh.closeExplorerUrl, network: 'solana:devnet', channelId: fresh.channelId || fresh.escrowId || '' })
+        return confirmed
+      }
       const fresh = await apiMissionService.getMission(mission.id)
       setMission(fresh)
-      return res
+      return quoted
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const refundDeposit = async (): Promise<FinishResult> => {
+    if (!mission) throw new Error('No hay misión activa')
+    if (!mission.escrowId || !caps?.solanaProgramId || !caps.solanaRpcUrl || !caps.solanaUsdcMint) {
+      throw new Error('El escrow no está desplegado. Corré npm run solana:deploy y configurá SOLANA_PROGRAM_ID.')
+    }
+    setActionLoading(true)
+    try {
+      const txHash = await refundEscrow({
+        rpcUrl: caps.solanaRpcUrl,
+        programId: caps.solanaProgramId,
+        usdcMint: caps.solanaUsdcMint,
+        escrowId: mission.escrowId,
+      })
+      const confirmed = await apiMissionService.confirmClose(mission.id, txHash, 'timeout_refund')
+      const fresh = await apiMissionService.getMission(mission.id)
+      setMission({ ...fresh, closeExplorerUrl: confirmed.explorerUrl ?? fresh.closeExplorerUrl, network: 'solana:devnet', channelId: fresh.channelId || fresh.escrowId || '' })
+      return confirmed
     } finally {
       setActionLoading(false)
     }
@@ -297,6 +327,7 @@ export function useMission() {
     confirmTopUpPayment,
     togglePause,
     finish,
+    refundDeposit,
     simulate,
     reset,
   }

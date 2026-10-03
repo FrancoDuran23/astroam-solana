@@ -22,15 +22,15 @@ const steps = [
     color: 'text-yellow-500',
     step: 'PASO 03',
     title: 'CHECKPOINT',
-    desc: 'Valida consumo byte a byte',
+    desc: 'Acumula el consumo off-chain',
     img: null,
   },
   {
     icon: 'hub',
     color: 'text-tealbrand',
     step: 'PASO 04',
-    title: 'RED STELLAR',
-    desc: 'Liquidación en 5 segundos',
+    title: 'SOLANA DEVNET',
+    desc: 'Un cierre, no un débito por MB',
     img: null,
   },
   {
@@ -72,7 +72,7 @@ export default function TechnologySection() {
             MICROPAGOS QUE IMPULSAN CADA TRAMO
           </h2>
           <p className="text-base sm:text-lg text-textsecondary">
-            Un circuito dinámico y auditable donde cada megabyte consumido genera un micropago directo sin fricción ni intermediarios.
+            El consumo se acumula off-chain. Una transacción en Solana paga lo usado y devuelve el resto del depósito.
           </p>
         </div>
 

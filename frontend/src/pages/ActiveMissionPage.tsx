@@ -20,6 +20,7 @@ export default function ActiveMissionPage() {
     simulate,
     togglePause,
     finish,
+    refundDeposit,
     reset,
   } = useMission()
 
@@ -59,6 +60,17 @@ export default function ActiveMissionPage() {
       setFinishResult(res)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al finalizar la misión')
+    }
+  }
+
+  async function handleTimeoutRefund() {
+    setError(null)
+    try {
+      const res = await refundDeposit()
+      setFinishResult(res)
+      setShowCompleteConfirm(true)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error en el reembolso por timeout')
     }
   }
 
@@ -119,7 +131,7 @@ export default function ActiveMissionPage() {
               <>
                 <h3 className="font-display text-xl font-bold text-textprimary">¿Finalizar misión?</h3>
                 <p className="text-sm text-textsecondary leading-relaxed">
-                  Tu eSIM se desactivará, se calculará el consumo final y se reembolsará el saldo remanente a tu wallet vía Soroban.
+                  Se firma un vale por el acumulado off-chain. Una transacción en Solana paga a AstroAm lo usado y devuelve el resto a tu wallet.
                 </p>
                 <div className="flex gap-3 pt-2">
                   <button
@@ -154,16 +166,30 @@ export default function ActiveMissionPage() {
                     <span className="font-bold text-textprimary uppercase">{finishResult.status}</span>
                   </div>
                   {finishResult.txHash && (
-                    <div className="flex justify-between">
+                    <div className="flex justify-between gap-3">
                       <span className="text-textsecondary">TX CIERRE:</span>
-                      <span className="font-bold text-primaryviolet text-[10px] break-all">{finishResult.txHash}</span>
+                      {finishResult.explorerUrl ? (
+                        <a className="font-bold text-primaryviolet text-[10px] break-all underline" href={finishResult.explorerUrl} target="_blank" rel="noreferrer">
+                          Explorer
+                        </a>
+                      ) : (
+                        <span className="font-bold text-primaryviolet text-[10px] break-all">{finishResult.txHash}</span>
+                      )}
+                    </div>
+                  )}
+                  {finishResult.solana && (
+                    <div className="flex justify-between">
+                      <span className="text-textsecondary">USADO / DEVUELTO:</span>
+                      <span className="font-bold text-textprimary">{finishResult.solana.usedUsdc} / {finishResult.solana.refundUsdc} USDC</span>
                     </div>
                   )}
                 </div>
                 <p className="font-sans text-xs text-textsecondary">
                   {finishResult.status === 'completed'
-                    ? 'El proceso ha finalizado y el saldo sobrante fue liberado.'
-                    : 'La devolución (defund) está siendo procesada en segundo plano por el proveedor Citrus y Soroban.'}
+                    ? 'El cierre quedó en Solana: AstroAm cobró lo usado y el resto volvió a tu wallet.'
+                    : finishResult.status === 'awaiting_close'
+                      ? 'El vale está listo. Falta desplegar el escrow (npm run solana:deploy) para enviar el cierre.'
+                      : 'La devolución quedó registrada.'}
                 </p>
                 <button
                   type="button"
@@ -199,7 +225,7 @@ export default function ActiveMissionPage() {
         </div>
         <div className="flex items-center gap-4 font-mono text-xs text-textsecondary">
           <span>{fmtDate(mission.startDate)} → {fmtDate(mission.endDate)}</span>
-          <span className="hidden sm:inline">RED STELLAR {caps?.network ? caps.network.toUpperCase() : 'TESTNET'}</span>
+          <span className="hidden sm:inline">SOLANA DEVNET</span>
         </div>
       </div>
 
@@ -335,7 +361,7 @@ export default function ActiveMissionPage() {
             {isCompleted
               ? '"Misión completada. El saldo no consumido ha sido liberado a tu wallet."'
               : isClosing
-                ? '"Proceso de cierre en curso. Liquidando consumo final con Citrus y Soroban."'
+                ? '"Proceso de cierre en curso. Una transacción liquida el vale acumulado en Solana."'
                 : isPaused
                   ? '"Los datos están pausados. Recargá saldo o reanudá cuando estés listo."'
                   : pctRemaining < 20
@@ -356,7 +382,7 @@ export default function ActiveMissionPage() {
             </span>
           </div>
           <span className="font-mono text-[10px] text-textsecondary">
-            Stellar {caps?.network ? caps.network.toUpperCase() : 'Testnet'}
+            Solana Devnet
           </span>
         </div>
         <ActivityFeed events={events} />
@@ -377,9 +403,15 @@ export default function ActiveMissionPage() {
 
         {showTechDetails && (
           <div className="mt-4 pt-4 border-t border-cardborder grid grid-cols-2 sm:grid-cols-3 gap-3 font-mono text-[10px]">
-            <TechRow label="CANAL" value={mission.channelId || 'EN PROCESO'} />
-            <TechRow label="RED" value={caps?.network || 'Stellar Testnet'} />
-            <TechRow label="PROTOCOLO" value="MPP / Soroban" />
+            <TechRow label="ESCROW" value={mission.escrowId || caps?.solanaProgramId || 'SIN DESPLEGAR'} />
+            <TechRow label="RED" value="Solana Devnet" />
+            <TechRow label="USDC" value="6 decimales" />
+            {mission.depositExplorerUrl && (
+              <a className="font-bold text-primaryviolet underline" href={mission.depositExplorerUrl} target="_blank" rel="noreferrer">DEPÓSITO EN EL EXPLORER</a>
+            )}
+            {mission.closeExplorerUrl && (
+              <a className="font-bold text-primaryviolet underline" href={mission.closeExplorerUrl} target="_blank" rel="noreferrer">CIERRE EN EL EXPLORER</a>
+            )}
             <TechRow label="eSIM" value={mission.esimStatus.toUpperCase()} />
             <TechRow label="PROVEEDOR" value={providerLabel} />
             <TechRow label="ICCID" value={iccidDisplay} />
@@ -390,7 +422,7 @@ export default function ActiveMissionPage() {
 
       {/* 8. Secondary Destructive Finish Mission Action */}
       {!isCompleted && !isClosing && (
-        <div className="pt-2 pb-6 flex justify-center">
+        <div className="pt-2 pb-6 flex flex-col sm:flex-row justify-center gap-3">
           <button
             type="button"
             disabled={actionLoading}
@@ -400,7 +432,18 @@ export default function ActiveMissionPage() {
             <span className="material-symbols-outlined text-base">flag</span>
             FINALIZAR MISIÓN
           </button>
+          <button
+            type="button"
+            disabled={actionLoading || !caps?.solanaProgramId}
+            onClick={() => void handleTimeoutRefund()}
+            className="w-full sm:w-auto px-6 py-3.5 rounded-full border border-cardborder bg-white text-textsecondary font-sans font-bold text-xs uppercase tracking-wider hover:bg-bglight disabled:opacity-40 transition-all min-h-[48px]"
+          >
+            REEMBOLSO POR TIMEOUT
+          </button>
         </div>
+      )}
+      {error && !showCompleteConfirm && (
+        <p className="pb-4 font-mono text-xs text-alerta">{error}</p>
       )}
 
       {/* Reset/Exit for completed */}

@@ -12,7 +12,7 @@ export default function HowItWorksSection() {
             CÓMO FUNCIONA
           </h2>
           <p className="text-base sm:text-lg text-textsecondary">
-            Un recorrido continuo de 4 niveles que activa tu conectividad en segundos sobre la infraestructura descentralizada de Stellar.
+            Un recorrido continuo de 4 niveles que activa tu conectividad en segundos. El pago es un depósito de USDC en Solana devnet.
           </p>
         </div>
 
@@ -63,7 +63,7 @@ export default function HowItWorksSection() {
               </div>
               <h3 className="font-display text-lg font-bold text-textprimary">CARGÁ COMBUSTIBLE</h3>
               <p className="text-xs text-textsecondary leading-relaxed">
-                Depositá saldo en USDC. Tu dinero permanece seguro bajo tu custodia en la red Stellar y nunca vence.
+                Depositá USDC una vez en el escrow de Solana. El consumo se mide off-chain; al cerrar, lo usado se paga y el resto vuelve.
               </p>
             </div>
           </div>
@@ -114,7 +114,7 @@ export default function HowItWorksSection() {
               </div>
               <h3 className="font-display text-lg font-bold text-textprimary">PAGÁ POR CONSUMO</h3>
               <p className="text-xs text-textsecondary leading-relaxed">
-                Navegá sin fricción. Cada bloque de megabytes se liquida automáticamente. Lo que no usás, no lo pagás.
+                Navegá sin fricción. El uso se acumula en un vale off-chain. Un solo cierre cobra lo usado y devuelve el resto.
               </p>
             </div>
           </div>

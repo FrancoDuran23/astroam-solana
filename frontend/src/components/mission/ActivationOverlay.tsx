@@ -5,7 +5,7 @@ import type { ActivationStep } from '../../types/mission'
 const STEPS: ActivationStep[] = [
   { label: 'Conectando wallet demo (Simulado)', status: 'pending' },
   { label: 'Reservando saldo USDC (Simulado)', status: 'pending' },
-  { label: 'Desplegando State Channel Soroban (Simulado)', status: 'pending' },
+  { label: 'Reservando el depósito en el escrow de Solana', status: 'pending' },
   { label: 'Aprovisionando perfil eSIM demo', status: 'pending' },
   { label: 'Misión lista (Modo Demo)', status: 'pending' },
 ]

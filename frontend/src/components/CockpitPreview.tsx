@@ -95,7 +95,7 @@ export default function CockpitPreview() {
                   <span className="font-display text-5xl font-bold text-textprimary tracking-tight">3,00</span>
                   <span className="font-mono text-lg font-bold text-primaryviolet">USDC</span>
                 </div>
-                <span className="text-xs text-textsecondary mt-1">Custodia descentralizada en Stellar Testnet.</span>
+                <span className="text-xs text-textsecondary mt-1">Custodia en un escrow de USDC en Solana devnet.</span>
               </div>
 
               {/* AI copilot */}

@@ -13,7 +13,7 @@ export default function ActivityFeed({ events }: Props) {
         <p className="font-mono text-xs font-bold text-textsecondary/60 uppercase tracking-widest">
           Sin actividad aún
         </p>
-        <p className="text-xs text-textsecondary/40">Simulá consumo para ver los micropagos</p>
+        <p className="text-xs text-textsecondary/40">Simulá consumo para ver el acumulado off-chain</p>
       </div>
     )
   }
@@ -59,7 +59,7 @@ export default function ActivityFeed({ events }: Props) {
                   {ev.txId.slice(0, 12)}…
                 </span>
                 <span className="inline-flex items-center gap-0.5 font-mono text-[9px] text-primaryviolet font-medium">
-                  Stellar Testnet (Simulado)
+                  Solana Devnet (demo)
                 </span>
               </div>
             </div>

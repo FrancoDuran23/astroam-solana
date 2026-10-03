@@ -44,6 +44,7 @@ if (typeof window !== 'undefined') {
     'GATEWAY_TOKEN',
     'MPP_SECRET_KEY',
     'COSMOS_PAY_API_KEY',
+    'SOLANA_DEPLOYER_KEYPAIR',
   ]
 
   for (const key of forbiddenKeys) {
