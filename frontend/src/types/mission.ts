@@ -1,6 +1,7 @@
-// ── Core domain types for ASTROAM mission flow ──────────────────────────────
+// ── Core domain types for the AstroAm mission flow ──────────────────────────────
 
-export type Network = 'solana:devnet' | 'stellar:testnet' | 'stellar:pubnet' | 'demo:local'
+/** `<chain>:<name>` of the payment rail, e.g. "monad:testnet" or "demo:local". */
+export type Network = string
 
 export type MissionStatus =
   | 'pending_payment'
@@ -10,6 +11,7 @@ export type MissionStatus =
   | 'closing'
   | 'refund_pending'
   | 'completed'
+  | 'cancelled'
   | 'failed'
   | 'error'
 
@@ -46,31 +48,35 @@ export type Mission = {
   paymentStatus?: 'pending' | 'paid' | 'failed'
   depositTxHash?: string
   depositExplorerUrl?: string
-  escrowId?: string
-  travelerAddress?: string
-  closeExplorerUrl?: string
   // live state
   balanceUsdc: number      // remaining
   consumedUsdc: number
   consumedMb: number
   esimStatus: 'active' | 'paused' | 'disabled' | 'not_provisioned'
   network: Network
-  channelId: string        // meter channel, or the escrow id once Solana is configured
+  channelId: string        // payment channel opened by the deposit
+  escrowId?: string
   iccid?: string
   esim?: PublicEsimInfo
   isMock?: boolean
   closeTxHash?: string
+  closeExplorerUrl?: string
+  settledUsdc?: number
+  refundedUsdc?: number
   createdAt: string        // ISO timestamp
 }
 
 export type UsageEvent = {
   id: string
   timestamp: string        // ISO timestamp
+  kind: 'usage' | 'topup'
   mb: number
   amountUsdc: number
-  status: 'liquidated'
-  txId: string             // abbreviated mock tx hash
-  explorerUrl?: string     // filled when real backend available
+  /** signed: a voucher covers it; rejected: the channel could not pay. */
+  status: 'signed' | 'rejected' | 'settled'
+  /** Voucher signature or transaction id, shortened in the UI. */
+  txId: string
+  explorerUrl?: string
 }
 
 export type PaymentEvent = {
@@ -86,12 +92,13 @@ export type MissionState = {
   events: UsageEvent[]
 }
 
+/** What Phantom or Solflare sends for a deposit on the Solana devnet escrow. */
 export type SolanaDepositPlan = {
   cluster: 'devnet'
   rpcUrl: string
   explorer: string
   usdcMint: string
-  usdcDecimals: 6
+  usdcDecimals: number
   tokenProgram: string
   programId: string | null
   payee: string | null
@@ -115,13 +122,15 @@ export type PaymentIntentInfo = {
   intentId: string
   amount: string
   asset: string
-  sep7Uri?: string
-  qr?: string
-  destination?: string
+  /** Address the deposit goes to (the payment channel contract). */
   payTo?: string
+  /** Wallet deep link for the deposit. */
+  paymentUri?: string
+  qr?: string
+  network?: string
   status: string
   isMock: boolean
-  rail?: 'solana'
+  /** Present when the wallet sends the deposit itself on Solana devnet. */
   solana?: SolanaDepositPlan
 }
 
@@ -129,31 +138,41 @@ export type PaymentConfirmationResult = {
   valid: boolean
   status: string
   depositTxHash?: string
-  explorerUrl?: string | null
+  explorerUrl?: string
+  channelId?: string
 }
 
 export type FinishResult = {
   txHash?: string
+  explorerUrl?: string
   status: 'closing' | 'refund_pending' | 'settling' | 'completed' | 'failed' | 'awaiting_close'
+  closeKind?: string
+  settledUsdc?: number
+  refundedUsdc?: number
+  /** @deprecated kept for the offline demo; use refundedUsdc. */
   refundAmountUsdc?: number
-  explorerUrl?: string | null
-  settlement?: 'close' | 'timeout_refund'
+  /** Traveler wallet and its USDC balance, read around the close. */
+  wallet?: { address: string; beforeUsdc: number; afterUsdc: number }
   solana?: SolanaClosePlan
+}
+
+export type CancelResult = {
+  status: 'cancelled'
+  txHash?: string
+  explorerUrl?: string
+  refundedUsdc?: number
 }
 
 export type BackendCapabilities = {
   backendAvailable: boolean
   network: string
-  stage: number
-  channelConfigured: boolean
-  voucherAgentAvailable: boolean
-  paymentServerReady: boolean
-  voucherAgentReady: boolean
+  paymentRail: string
+  paymentsLive: boolean
+  /** "traveler": the app signs usage vouchers with its session key. */
+  voucherSigning?: 'rail' | 'traveler'
   channelReady: boolean
   citrusReady: boolean
   connectivityProvider: 'fake' | 'citrus'
-  cosmoPayStatus: 'live' | 'mock' | 'unavailable'
-  cosmoPayMode: 'live' | 'mock' | 'unavailable'
   citrusStatus: 'live' | 'unavailable'
   meteringMode: 'real' | 'demo' | 'unavailable'
   reconciliationAvailable: boolean
@@ -162,15 +181,12 @@ export type BackendCapabilities = {
   liveEnabled: boolean
   requiresAuth: boolean
   missingConfiguration: string[]
-  paymentRail?: string
-  solanaCluster?: 'devnet'
+  solanaCluster?: string
   solanaRpcUrl?: string
   solanaExplorer?: string
   solanaUsdcMint?: string
-  solanaUsdcDecimals?: number
   solanaProgramId?: string | null
   solanaPayee?: string | null
-  solanaTimeoutSeconds?: number
 }
 
 // ── Wizard step state ────────────────────────────────────────────────────────

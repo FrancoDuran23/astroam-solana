@@ -183,6 +183,16 @@ export function createProductRouter(service: MissionProductService): Router {
     }
   })
 
+  router.post('/missions/:id/cancel', requireAuthIfNeeded, async (req: Request, res: Response) => {
+    try {
+      const result = await service.cancelMission(getId(req))
+      res.json(result)
+    } catch (err) {
+      const is503 = err instanceof Error && err.message.includes('503:')
+      res.status(is503 ? 503 : 400).json({ error: 'cancel_failed', message: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
   // 11. Finish Mission — quotes the cumulative voucher. The wallet sends the close.
   router.post('/missions/:id/finish', requireAuthIfNeeded, async (req: Request, res: Response) => {
     try {

@@ -3,9 +3,9 @@ import { envConfig } from '../config/env'
 import { demoMissionService } from '../services/DemoMissionService'
 import { apiMissionService } from '../services/ApiMissionService'
 import { DEMO_TRAFFIC_MB } from '../utils/missionUtils'
-import { closeEscrow, refundEscrow } from '../chain/solana'
 import type {
   BackendCapabilities,
+  CancelResult,
   FinishResult,
   Mission,
   PaymentConfirmationResult,
@@ -21,7 +21,6 @@ export function useMission() {
   const [loading, setLoading] = useState<boolean>(true)
   const [backendError, setBackendError] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState<boolean>(false)
-
   const isDemoMode = envConfig.mode === 'demo'
 
   const loadBackendState = useCallback(async () => {
@@ -42,7 +41,7 @@ export function useMission() {
       setCaps(capabilities)
 
       if (!capabilities || !capabilities.backendAvailable) {
-        setBackendError('BACKEND NO DISPONIBLE — El servidor de producto ASTROAM no responde.')
+        setBackendError('The AstroAm server is not responding.')
         setLoading(false)
         return
       }
@@ -75,7 +74,7 @@ export function useMission() {
         }
       }
     } catch (err) {
-      setBackendError(err instanceof Error ? err.message : 'Error al conectar con la API')
+      setBackendError(err instanceof Error ? err.message : 'Could not reach the API')
     } finally {
       setLoading(false)
     }
@@ -128,7 +127,7 @@ export function useMission() {
   // todavía no la tiene cuando se llama justo después de createMission.
   const createPaymentIntent = async (target?: Mission): Promise<PaymentIntentInfo> => {
     const current = target ?? mission
-    if (!current) throw new Error('No hay misión activa')
+    if (!current) throw new Error('No active mission')
     if (isDemoMode) {
       return {
         intentId: `intent_demo_${Date.now()}`,
@@ -141,8 +140,8 @@ export function useMission() {
     return apiMissionService.createPaymentIntent(current.id)
   }
 
-  const confirmPayment = async (intentId: string, txHash: string, traveler?: string): Promise<PaymentConfirmationResult> => {
-    if (!mission) throw new Error('No hay misión activa')
+  const confirmPayment = async (intentId: string, txHash: string): Promise<PaymentConfirmationResult> => {
+    if (!mission) throw new Error('No active mission')
     setActionLoading(true)
     try {
       if (isDemoMode) {
@@ -151,7 +150,8 @@ export function useMission() {
         demoMissionService.saveState({ mission: updated, events })
         return { valid: true, status: 'paid', depositTxHash: txHash }
       }
-      const res = await apiMissionService.confirmPayment(mission.id, intentId, txHash, traveler)
+      const { rememberedPayer } = await import('../chain/solana')
+      const res = await apiMissionService.confirmPayment(mission.id, intentId, txHash, rememberedPayer(mission.id))
       if (res.valid) {
         const fresh = await apiMissionService.getMission(mission.id)
         setMission(fresh)
@@ -163,7 +163,7 @@ export function useMission() {
   }
 
   const activate = async (): Promise<void> => {
-    if (!mission) throw new Error('No hay misión activa')
+    if (!mission) throw new Error('No active mission')
     setActionLoading(true)
     try {
       if (isDemoMode) {
@@ -185,7 +185,7 @@ export function useMission() {
   }
 
   const createTopUpIntent = async (amountUsdc: number): Promise<PaymentIntentInfo> => {
-    if (!mission) throw new Error('No hay misión activa')
+    if (!mission) throw new Error('No active mission')
     if (isDemoMode) {
       return {
         intentId: `top_intent_${Date.now()}`,
@@ -199,7 +199,7 @@ export function useMission() {
   }
 
   const confirmTopUpPayment = async (intentId: string, txHash: string, amountUsdc: number): Promise<void> => {
-    if (!mission) throw new Error('No hay misión activa')
+    if (!mission) throw new Error('No active mission')
     setActionLoading(true)
     try {
       if (isDemoMode) {
@@ -239,39 +239,106 @@ export function useMission() {
     }
   }
 
+  // The wallet's on-chain USDC, so the traveler sees the refund land. Never blocks the close.
+  const walletUsdc = async (missionId: string) => {
+    try {
+      const { readTravelerUsdc } = await import('../chain/solana')
+      return await readTravelerUsdc(missionId)
+    } catch {
+      return null
+    }
+  }
+
+  // The RPC can lag a block behind the close: read again once if the refund is not there yet.
+  const walletUsdcAfter = async (missionId: string, beforeUsdc: number, refundedUsdc: number) => {
+    const first = await walletUsdc(missionId)
+    if (!first || refundedUsdc <= 0 || first.usdc > beforeUsdc) return first
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+    return (await walletUsdc(missionId)) ?? first
+  }
+
   const finish = async (): Promise<FinishResult> => {
-    if (!mission) throw new Error('No hay misión activa')
+    if (!mission) throw new Error('No active mission')
     setActionLoading(true)
     try {
       if (isDemoMode) {
         const newState = demoMissionService.completeMission({ mission, events })
         setMission(newState.mission)
         setEvents(newState.events)
-        return { status: 'completed', txHash: '0xdemo_close_tx' }
+        return {
+          status: 'completed',
+          txHash: `demo_close_${Date.now().toString(16)}`,
+          settledUsdc: mission.consumedUsdc,
+          refundedUsdc: mission.balanceUsdc,
+        }
       }
       const quoted = await apiMissionService.finishMission(mission.id)
+      const used = Number(quoted.solana?.usedUsdc ?? quoted.settledUsdc ?? mission.consumedUsdc ?? 0)
+      const refunded = Number(quoted.solana?.refundUsdc ?? quoted.refundedUsdc ?? mission.balanceUsdc ?? 0)
       if (quoted.status === 'awaiting_close' && quoted.solana?.deployed && quoted.solana.messageBase64) {
+        const { closeEscrow } = await import('../chain/solana')
+        const before = await walletUsdc(mission.id)
         const txHash = await closeEscrow(quoted.solana)
         const confirmed = await apiMissionService.confirmClose(mission.id, txHash, 'close')
         const fresh = await apiMissionService.getMission(mission.id)
-        setMission({ ...fresh, closeExplorerUrl: confirmed.explorerUrl ?? fresh.closeExplorerUrl, network: 'solana:devnet', channelId: fresh.channelId || fresh.escrowId || '' })
-        return confirmed
+        setMission(fresh)
+        const after = before ? await walletUsdcAfter(mission.id, before.usdc, refunded) : null
+        return {
+          ...confirmed,
+          status: 'completed',
+          settledUsdc: used,
+          refundedUsdc: refunded,
+          wallet: before && after ? { address: before.address, beforeUsdc: before.usdc, afterUsdc: after.usdc } : undefined,
+        }
       }
       const fresh = await apiMissionService.getMission(mission.id)
       setMission(fresh)
-      return quoted
+      return { ...quoted, settledUsdc: used, refundedUsdc: refunded }
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  /** Gives the whole deposit back for a trip that was paid but never activated. */
+  const cancel = async (): Promise<CancelResult> => {
+    if (!mission) throw new Error('No active mission')
+    setActionLoading(true)
+    try {
+      if (caps?.solanaProgramId && mission.escrowId) {
+        const quoted = await apiMissionService.finishMission(mission.id)
+        if (!quoted.solana?.deployed || !quoted.solana.messageBase64) {
+          throw new Error('The escrow is not deployed, so the wallet cannot refund it yet.')
+        }
+        const { closeEscrow } = await import('../chain/solana')
+        const txHash = await closeEscrow(quoted.solana)
+        const confirmed = await apiMissionService.confirmClose(mission.id, txHash, 'close')
+        apiMissionService.clearSavedMissionId()
+        setMission(null)
+        return {
+          status: 'cancelled',
+          txHash: confirmed.txHash,
+          explorerUrl: confirmed.explorerUrl,
+          refundedUsdc: Number(quoted.solana.refundUsdc),
+        }
+      }
+      const res = await apiMissionService.cancelMission(mission.id)
+      apiMissionService.clearSavedMissionId()
+      setMission(null)
+      return res
     } finally {
       setActionLoading(false)
     }
   }
 
   const refundDeposit = async (): Promise<FinishResult> => {
-    if (!mission) throw new Error('No hay misión activa')
+    if (!mission) throw new Error('No active mission')
     if (!mission.escrowId || !caps?.solanaProgramId || !caps.solanaRpcUrl || !caps.solanaUsdcMint) {
-      throw new Error('El escrow no está desplegado. Corré npm run solana:deploy y configurá SOLANA_PROGRAM_ID.')
+      throw new Error('The escrow is not deployed. Run npm run solana:deploy and set SOLANA_PROGRAM_ID.')
     }
     setActionLoading(true)
     try {
+      const { refundEscrow } = await import('../chain/solana')
+      const before = await walletUsdc(mission.id)
       const txHash = await refundEscrow({
         rpcUrl: caps.solanaRpcUrl,
         programId: caps.solanaProgramId,
@@ -280,12 +347,23 @@ export function useMission() {
       })
       const confirmed = await apiMissionService.confirmClose(mission.id, txHash, 'timeout_refund')
       const fresh = await apiMissionService.getMission(mission.id)
-      setMission({ ...fresh, closeExplorerUrl: confirmed.explorerUrl ?? fresh.closeExplorerUrl, network: 'solana:devnet', channelId: fresh.channelId || fresh.escrowId || '' })
-      return confirmed
+      setMission(fresh)
+      const refunded = confirmed.refundedUsdc ?? mission.budgetUsdc
+      const after = before ? await walletUsdcAfter(mission.id, before.usdc, refunded) : null
+      return {
+        ...confirmed,
+        status: 'completed',
+        settledUsdc: 0,
+        refundedUsdc: refunded,
+        wallet: before && after ? { address: before.address, beforeUsdc: before.usdc, afterUsdc: after.usdc } : undefined,
+      }
     } finally {
       setActionLoading(false)
     }
   }
+
+  const travelerSigns = false
+  const authorizedUsdc = null
 
   const simulate = async (): Promise<void> => {
     if (!mission) return
@@ -294,8 +372,22 @@ export function useMission() {
       setMission(newState.mission)
       setEvents(newState.events)
     } else {
-      await apiMissionService.triggerDemoTraffic(mission.id, DEMO_TRAFFIC_MB * 1_000_000)
+      const res = (await apiMissionService.triggerDemoTraffic(mission.id, DEMO_TRAFFIC_MB * 1_000_000)) as {
+        voucher?: { kind: string; envelope?: { voucher?: { signature?: string } } }
+        consumedUsdc?: number
+      }
       const fresh = await apiMissionService.getMission(mission.id)
+      const signed = res.voucher?.kind === 'signed'
+      const event: UsageEvent = {
+        id: `${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        kind: 'usage',
+        mb: DEMO_TRAFFIC_MB,
+        amountUsdc: Math.max(0, (fresh.consumedUsdc ?? 0) - (mission.consumedUsdc ?? 0)),
+        status: signed ? 'signed' : 'rejected',
+        txId: res.voucher?.envelope?.voucher?.signature ?? '',
+      }
+      setEvents((prev) => [event, ...prev])
       setMission(fresh)
     }
   }
@@ -318,6 +410,9 @@ export function useMission() {
     actionLoading,
     backendError,
     isDemoMode,
+    travelerSigns,
+    authorizedUsdc,
+    refundDeposit,
     retryBackend: loadBackendState,
     createMission,
     createPaymentIntent,
@@ -327,7 +422,7 @@ export function useMission() {
     confirmTopUpPayment,
     togglePause,
     finish,
-    refundDeposit,
+    cancel,
     simulate,
     reset,
   }

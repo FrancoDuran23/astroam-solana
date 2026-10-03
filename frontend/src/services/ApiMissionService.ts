@@ -1,6 +1,7 @@
 import { envConfig } from '../config/env'
 import type {
   BackendCapabilities,
+  CancelResult,
   FinishResult,
   Mission,
   PaymentConfirmationResult,
@@ -89,7 +90,7 @@ export class ApiMissionService {
       consumedUsdc: 0,
       consumedMb: 0,
       esimStatus: 'not_provisioned',
-      network: 'solana:devnet',
+      network: 'demo:local',
       channelId: '',
       createdAt: new Date().toISOString(),
     }
@@ -111,7 +112,7 @@ export class ApiMissionService {
       method: 'POST',
       headers: getAuthHeaders(),
       credentials: 'include',
-      body: JSON.stringify({ intentId, txHash, traveler }),
+      body: JSON.stringify({ intentId, txHash, ...(traveler ? { traveler } : {}) }),
     })
     return handleResponse<PaymentConfirmationResult>(res)
   }
@@ -187,6 +188,21 @@ export class ApiMissionService {
     return handleResponse<PaymentConfirmationResult & { balanceUsdc?: number }>(res)
   }
 
+  async getAuthorization(missionId: string): Promise<{ voucherSigning: 'rail' | 'traveler'; authorizedUsdc: number }> {
+    const res = await fetch(`${this.baseUrl}/missions/${missionId}/authorization`, { credentials: 'include' })
+    return handleResponse(res)
+  }
+
+  async submitAuthorization(missionId: string, cumulativeAmount: string, signature: string): Promise<{ authorizedUsdc: number }> {
+    const res = await fetch(`${this.baseUrl}/missions/${missionId}/authorizations`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      credentials: 'include',
+      body: JSON.stringify({ cumulativeAmount, signature }),
+    })
+    return handleResponse(res)
+  }
+
   async confirmClose(missionId: string, txHash: string, settlement: 'close' | 'timeout_refund'): Promise<FinishResult> {
     const res = await fetch(`${this.baseUrl}/missions/${missionId}/close`, {
       method: 'POST',
@@ -204,6 +220,15 @@ export class ApiMissionService {
       credentials: 'include',
     })
     return handleResponse<FinishResult>(res)
+  }
+
+  async cancelMission(missionId: string): Promise<CancelResult> {
+    const res = await fetch(`${this.baseUrl}/missions/${missionId}/cancel`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      credentials: 'include',
+    })
+    return handleResponse<CancelResult>(res)
   }
 
   async triggerDemoTraffic(missionId: string, bytes = 500_000): Promise<unknown> {

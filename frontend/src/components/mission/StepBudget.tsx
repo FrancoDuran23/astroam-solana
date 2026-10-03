@@ -26,9 +26,9 @@ export default function StepBudget({
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <label className="font-mono text-[11px] font-bold text-textsecondary tracking-widest uppercase">
-            SALDO INICIAL EN USDC
+            USDC DEPOSIT
           </label>
-          <span className="font-display text-xl font-bold text-primaryviolet">
+          <span className="font-display text-xl font-bold text-[#B9A6FF]">
             {budgetUsdc.toFixed(2)} USDC
           </span>
         </div>
@@ -46,7 +46,7 @@ export default function StepBudget({
               onChange('dailyLimitUsdc', newBudget)
             }
           }}
-          className="w-full accent-primaryviolet"
+          className="w-full h-11 accent-primaryviolet"
         />
         <div className="flex justify-between font-mono text-[10px] text-textsecondary">
           <span>1 USDC</span>
@@ -55,28 +55,28 @@ export default function StepBudget({
       </div>
 
       {/* Estimated data */}
-      <div className="p-5 rounded-2xl bg-bglight border border-cardborder flex items-start sm:items-center gap-4">
+      <div className="p-5 rounded-2xl bg-warmneutral border border-cardborder flex items-start sm:items-center gap-4">
         <div className="w-12 h-12 rounded-full bg-tealbrand/10 border border-tealbrand/20 flex items-center justify-center shrink-0 mt-0.5 sm:mt-0">
           <span className="material-symbols-outlined text-tealbrand text-xl">wifi_tethering</span>
         </div>
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-0.5">
             <span className="font-mono text-[10px] font-bold text-textsecondary uppercase tracking-wider">
-              DATOS DISPONIBLES ESTIMADOS
+              ESTIMATED DATA
             </span>
             <span className="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold bg-tealbrand/10 text-tealbrand border border-tealbrand/20 uppercase">
-              ESTIMACIÓN
+              ESTIMATE
             </span>
           </div>
           {destination.pricePerMbUsdc && destination.pricePerMbUsdc > 0 ? (
             <>
               <p className="font-display text-2xl font-bold text-textprimary">{fmtMb(estimatedMb)}</p>
               <p className="text-xs text-textsecondary mt-0.5">
-                a {(destination.pricePerMbUsdc * 1000).toFixed(1)} mUSDC/MB en {destination.name}. <span className="text-[11px] text-textsecondary/80">El uso y consumo real son confirmados en tiempo real por Citrus Mobile.</span>
+                at {destination.pricePerMbUsdc} USDC/MB in {destination.name}. <span className="text-[11px] text-textsecondary/80">Actual usage is reported by the carrier, Citrus Mobile.</span>
               </p>
             </>
           ) : (
-            <p className="font-mono text-xs font-bold text-alerta mt-1">Tarifa no disponible</p>
+            <p className="font-mono text-xs font-bold text-alerta mt-1">Rate not available</p>
           )}
         </div>
       </div>
@@ -85,10 +85,10 @@ export default function StepBudget({
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <label className="font-mono text-[11px] font-bold text-textsecondary tracking-widest uppercase">
-            LÍMITE MÁXIMO DIARIO
+            DAILY LIMIT
           </label>
           <span className="font-display text-xl font-bold text-tealbrand">
-            {dailyLimitUsdc.toFixed(2)} USDC/día
+            {dailyLimitUsdc.toFixed(2)} USDC/day
           </span>
         </div>
         <input
@@ -98,7 +98,7 @@ export default function StepBudget({
           step={0.5}
           value={dailyLimitUsdc}
           onChange={(e) => onChange('dailyLimitUsdc', parseFloat(e.target.value))}
-          className="w-full accent-tealbrand"
+          className="w-full h-11 accent-tealbrand"
         />
         <div className="flex justify-between font-mono text-[10px] text-textsecondary">
           <span>0.5 USDC</span>
@@ -109,15 +109,15 @@ export default function StepBudget({
       {/* Toggles */}
       <div className="flex flex-col gap-4">
         <Toggle
-          label="Pausar automáticamente cuando alcance el límite"
-          sublabel="El copiloto cortará los datos cuando se agote el presupuesto diario."
+          label="Pause data automatically at the limit"
+          sublabel="The copilot cuts data when the daily budget runs out."
           checked={autoPauseAtLimit}
           onChange={(v) => onChange('autoPauseAtLimit', v)}
           accent="tealbrand"
         />
         <Toggle
-          label="Avisarme cuando quede menos del 20%"
-          sublabel="Recibirás una alerta visual antes de quedarte sin saldo."
+          label="Warn me below 20%"
+          sublabel="You get a visual alert before your balance runs out."
           checked={alertAt20pct}
           onChange={(v) => onChange('alertAt20pct', v)}
           accent="primaryviolet"
@@ -144,7 +144,7 @@ function Toggle({
 
   return (
     <div
-      className="flex items-start gap-4 p-4 rounded-2xl bg-white border border-cardborder cursor-pointer hover:border-primaryviolet/30 transition-all"
+      className="flex items-start gap-4 p-4 rounded-2xl bg-warmneutral border border-cardborder cursor-pointer hover:border-primaryviolet/40 transition-all"
       onClick={() => onChange(!checked)}
     >
       {/* Toggle switch */}

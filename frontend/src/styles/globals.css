@@ -11,22 +11,122 @@ html {
   scroll-behavior: smooth;
 }
 
+html {
+  color-scheme: dark;
+}
+
 body {
   @apply bg-bglight text-textprimary font-sans antialiased overflow-x-hidden;
-  selection-color: theme('colors.primaryviolet.DEFAULT');
 }
 
 ::selection {
-  background-color: rgba(105, 65, 255, 0.2);
-  color: #6941FF;
+  background-color: rgba(123, 92, 255, 0.35);
+  color: #FFFFFF;
 }
 
-/* ── Fintech grid background ── */
+/* ── Faint grid over the starfield ── */
 .fintech-grid {
   background-size: 48px 48px;
   background-image:
-    linear-gradient(to right, rgba(105, 65, 255, 0.035) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(105, 65, 255, 0.035) 1px, transparent 1px);
+    linear-gradient(to right, rgba(123, 92, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(123, 92, 255, 0.05) 1px, transparent 1px);
+  mask-image: radial-gradient(ellipse at center, black 30%, transparent 80%);
+}
+
+/* ── Glass card over the starfield ── */
+.glass {
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+/* ── Glowing text and twinkling sparkle ── */
+.text-glow {
+  text-shadow: 0 0 18px rgba(123, 92, 255, 0.55), 0 0 42px rgba(47, 208, 221, 0.25);
+}
+
+@keyframes twinkle {
+  0%, 100% { opacity: 0.35; transform: scale(0.8) rotate(0deg); }
+  50% { opacity: 1; transform: scale(1.15) rotate(45deg); }
+}
+
+.animate-twinkle {
+  animation: twinkle 3.2s ease-in-out infinite;
+}
+
+h1, h2, h3, h4 {
+  text-wrap: balance;
+}
+
+a, button, input, select, textarea, label {
+  touch-action: manipulation;
+}
+
+/* ── Reels (3D card carousels) ── */
+:root {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+}
+
+.reel-stage {
+  touch-action: pan-y;
+  overflow-x: clip;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 10% 90%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 10% 90%, transparent);
+}
+
+.reel-arrow {
+  transition: transform 160ms var(--ease-out), border-color 160ms ease;
+}
+.reel-arrow:active:not(:disabled) {
+  transform: scale(0.97);
+}
+@media (hover: hover) and (pointer: fine) {
+  .reel-arrow:hover:not(:disabled) {
+    border-color: rgba(185, 166, 255, 0.6);
+  }
+}
+
+/* ── Dot-art cards lift on hover (pointer devices only) ── */
+.pillar-card {
+  transition: transform 260ms var(--ease-out), border-color 260ms ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .pillar-card:hover {
+    transform: translateY(-4px);
+    border-color: rgba(185, 166, 255, 0.5);
+  }
+}
+
+/* ── Measurement guides: drawn in once when the block is seen ── */
+.guide-line {
+  transition: clip-path 600ms var(--ease-in-out) 200ms;
+}
+.guide-line.is-h { clip-path: inset(0 100% 0 0); }
+.guide-line.is-v { clip-path: inset(0 0 100% 0); }
+.is-seen .guide-line { clip-path: inset(0 0 0 0); }
+.guide-tag {
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 400ms var(--ease-out) 700ms, transform 400ms var(--ease-out) 700ms;
+}
+.is-seen .guide-tag { opacity: 1; transform: none; }
+.measure-box {
+  clip-path: inset(0 100% 0 0);
+  transition: clip-path 900ms var(--ease-in-out);
+}
+.is-seen .measure-box { clip-path: inset(0 0 0 0); }
+
+@media (prefers-reduced-motion: reduce) {
+  .guide-line, .guide-tag, .measure-box { transition: none; }
+}
+
+/* ── Stepper: an active copy clipped to the current step (Emil's tab recipe) ── */
+.stepper-active {
+  transition: clip-path 250ms var(--ease-in-out);
+}
+
+input[type='date']::-webkit-calendar-picker-indicator {
+  filter: invert(0.85);
 }
 
 /* ── Material Symbols icon utility ── */
@@ -61,7 +161,7 @@ body {
 /* ── Launch hover effect ── */
 .group-launch:hover .launch-thrust {
   transform: translateY(-8px) scale(1.03);
-  filter: drop-shadow(0 12px 28px rgba(105, 65, 255, 0.35));
+  filter: drop-shadow(0 12px 28px rgba(123, 92, 255, 0.55));
 }
 
 /* ── Mobile & Safe Area Utilities ── */

@@ -75,7 +75,7 @@ cd frontend && npm install && npm run dev   # app en http://localhost:5173
 
 No crees `frontend/.env`: sin `VITE_API_BASE_URL`, Vite reenvía `/api` al backend. Dejá `ASTROAM_LIVE_ENABLED=false` y `CONNECTIVITY_PROVIDER=fake`. `PAYMENT_RAIL=fake` mantiene la medición de demo en memoria; el USDC se mueve solo cuando la wallet manda deposit o close.
 
-En **Nueva misión** el panel de depósito muestra devnet, el mint de Circle y «Sin desplegar» hasta que exista program id. Conectá Phantom o Solflare (no MetaMask). En la eSIM, si hubo depósito, hay link al explorer. En la misión activa, **TRÁFICO** mete 250 MB de demo (FakeProvider, sin Citrus). **Finalizar** cotiza un vale: 250 MB en Brasil a 0,0025 USDC/MB sobre 10 USDC son 0,625 usados y 9,375 devueltos. **Reembolso por timeout** queda deshabilitado hasta que el programa esté configurado.
+La app del viajero es la misma interfaz oscura que AstroAm en Monad (reels, starfield, landing de reembolso). Acá la wallet es Phantom o Solflare, no MetaMask. Sin `SOLANA_PROGRAM_ID` el depósito es simulado y **End mission** muestra la cotización: 250 MB en Brasil a 0,0025 USDC/MB sobre 10 USDC son 0,625 usados y 9,375 devueltos. Con el programa configurado, Phantom deposita USDC de Circle, firma un solo cierre y la landing muestra el USDC que volvió a la wallet. **Refund after timeout** queda deshabilitado hasta que el programa esté configurado. El tráfico de demo sigue en FakeProvider, sin Citrus.
 
 ## Cheques
 

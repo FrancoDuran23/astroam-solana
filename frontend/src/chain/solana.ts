@@ -1,3 +1,10 @@
+// Solana wallet flow for the devnet escrow.
+//
+// Phantom or Solflare (window.phantom.solana / window.solflare). The traveler
+// deposits Circle devnet USDC once. Usage stays off-chain. One close, signed
+// by that same wallet, pays AstroAm the used amount and refunds the rest.
+// A timeout refund returns the full deposit if AstroAm never closes.
+
 import { Buffer } from 'buffer'
 import {
   Connection,
@@ -7,7 +14,6 @@ import {
   SystemProgram,
   Transaction,
   TransactionInstruction,
-  type TransactionSignature,
 } from '@solana/web3.js'
 import {
   TOKEN_PROGRAM_ID,
@@ -15,9 +21,6 @@ import {
   getAssociatedTokenAddress,
 } from '@solana/spl-token'
 import type { SolanaClosePlan, SolanaDepositPlan } from '../types/mission'
-
-export const SOLANA_USDC_MINT = '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'
-export const SOLANA_EXPLORER = 'https://explorer.solana.com'
 
 const TAG_DEPOSIT = 1
 const TAG_TOP_UP = 2
@@ -40,9 +43,11 @@ declare global {
   }
 }
 
-export function solanaTxUrl(signature: string): string {
-  return `${SOLANA_EXPLORER}/tx/${signature}?cluster=devnet`
-}
+type PayerRecord = { address: string; rpcUrl: string; mint: string }
+
+const payerKey = (missionId: string) => `astroam_solana_payer_${missionId}`
+
+export type DepositProgress = 'connecting' | 'depositing' | 'confirming'
 
 export function walletError(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -53,13 +58,7 @@ function provider(): SolanaProvider {
   if (phantom?.isPhantom) return phantom
   const solflare = window.solflare
   if (solflare?.isSolflare) return solflare
-  throw new Error('No hay una wallet Solana. Instalá Phantom o Solflare y elegí Devnet.')
-}
-
-export async function connectSolanaWallet(): Promise<string> {
-  const wallet = provider()
-  const connected = wallet.publicKey ?? (await wallet.connect()).publicKey
-  return connected.toBase58()
+  throw new Error('No Solana wallet found. Install Phantom or Solflare and switch it to Devnet.')
 }
 
 function connectionFor(rpcUrl: string): Connection {
@@ -84,105 +83,146 @@ function pdas(programId: PublicKey, escrowId: string) {
   return { config, escrow, vault }
 }
 
-async function sendTransaction(rpcUrl: string, tx: Transaction): Promise<{ signature: TransactionSignature; traveler: string }> {
+function requireDeployed(plan: SolanaDepositPlan): { programId: PublicKey; payee: PublicKey } {
+  if (!plan.programId || !plan.payee || !plan.deployed) {
+    throw new Error('The escrow is not deployed. Run npm run solana:deploy and set SOLANA_PROGRAM_ID and SOLANA_PAYEE_ADDRESS.')
+  }
+  return { programId: new PublicKey(plan.programId), payee: new PublicKey(plan.payee) }
+}
+
+function rememberPayer(missionId: string, record: PayerRecord): void {
+  localStorage.setItem(payerKey(missionId), JSON.stringify(record))
+}
+
+export function rememberedPayer(missionId: string): string | undefined {
+  try {
+    const raw = localStorage.getItem(payerKey(missionId))
+    if (!raw) return undefined
+    const parsed = JSON.parse(raw) as PayerRecord
+    return parsed.address
+  } catch {
+    return undefined
+  }
+}
+
+async function sendTransaction(rpcUrl: string, tx: Transaction): Promise<string> {
   const wallet = provider()
   if (!wallet.publicKey) await wallet.connect()
   const traveler = wallet.publicKey
-  if (!traveler) throw new Error('La wallet no devolvió una cuenta.')
+  if (!traveler) throw new Error('The wallet did not return an account.')
   const connection = connectionFor(rpcUrl)
+  const lamports = await connection.getBalance(traveler)
+  if (lamports === 0) {
+    throw new Error('This wallet has no SOL for fees on Solana devnet. Get some at faucet.solana.com.')
+  }
   tx.feePayer = traveler
   const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed')
   tx.recentBlockhash = blockhash
   const signed = await wallet.signTransaction(tx)
   const signature = await connection.sendRawTransaction(signed.serialize())
   await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed')
-  return { signature, traveler: traveler.toBase58() }
+  return signature
 }
 
-function requireDeployed(plan: SolanaDepositPlan): { programId: PublicKey; payee: PublicKey } {
-  if (!plan.programId || !plan.payee || !plan.deployed) {
-    throw new Error('El escrow no está desplegado. Corré npm run solana:deploy y configurá SOLANA_PROGRAM_ID y SOLANA_PAYEE_ADDRESS.')
+export async function sendDeposit(
+  missionId: string,
+  plan: SolanaDepositPlan,
+  method: 'deposit' | 'topUp',
+  onProgress?: (step: DepositProgress) => void,
+): Promise<string> {
+  onProgress?.('connecting')
+  const { programId } = requireDeployed(plan)
+  const wallet = provider()
+  if (!wallet.publicKey) await wallet.connect()
+  const traveler = wallet.publicKey
+  if (!traveler) throw new Error('The wallet did not return an account.')
+  rememberPayer(missionId, { address: traveler.toBase58(), rpcUrl: plan.rpcUrl, mint: plan.usdcMint })
+
+  const connection = connectionFor(plan.rpcUrl)
+  const mint = new PublicKey(plan.usdcMint)
+  const travelerAta = await getAssociatedTokenAddress(mint, traveler)
+  const ata = await connection.getAccountInfo(travelerAta)
+  const needed = BigInt(plan.amount)
+  if (!ata) {
+    throw new Error(`This wallet has no USDC account on Solana devnet. Get test USDC at faucet.circle.com (mint ${plan.usdcMint}).`)
   }
-  return { programId: new PublicKey(plan.programId), payee: new PublicKey(plan.payee) }
-}
+  const balance = await connection.getTokenAccountBalance(travelerAta)
+  if (BigInt(balance.value.amount) < needed) {
+    throw new Error(
+      `This wallet has ${balance.value.uiAmountString ?? '0'} USDC on Solana devnet; the transfer needs ${plan.amountUsdc}. Get test USDC at faucet.circle.com.`,
+    )
+  }
 
-export async function depositUsdc(plan: SolanaDepositPlan): Promise<{ signature: string; traveler: string }> {
-  const { programId } = requireDeployed(plan)
-  const wallet = provider()
-  if (!wallet.publicKey) await wallet.connect()
-  const traveler = wallet.publicKey!
-  const mint = new PublicKey(plan.usdcMint)
-  const travelerAta = await getAssociatedTokenAddress(mint, traveler)
+  onProgress?.('depositing')
   const { config, escrow, vault } = pdas(programId, plan.escrowId)
-  const data = Buffer.concat([Buffer.from([TAG_DEPOSIT]), escrowSeeds(plan.escrowId), u64(BigInt(plan.amount))])
+  const data =
+    method === 'deposit'
+      ? Buffer.concat([Buffer.from([TAG_DEPOSIT]), escrowSeeds(plan.escrowId), u64(needed)])
+      : Buffer.concat([Buffer.from([TAG_TOP_UP]), u64(needed)])
+  const keys =
+    method === 'deposit'
+      ? [
+          { pubkey: traveler, isSigner: true, isWritable: true },
+          { pubkey: config, isSigner: false, isWritable: false },
+          { pubkey: escrow, isSigner: false, isWritable: true },
+          { pubkey: vault, isSigner: false, isWritable: true },
+          { pubkey: travelerAta, isSigner: false, isWritable: true },
+          { pubkey: mint, isSigner: false, isWritable: false },
+          { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ]
+      : [
+          { pubkey: traveler, isSigner: true, isWritable: true },
+          { pubkey: config, isSigner: false, isWritable: false },
+          { pubkey: escrow, isSigner: false, isWritable: true },
+          { pubkey: vault, isSigner: false, isWritable: true },
+          { pubkey: travelerAta, isSigner: false, isWritable: true },
+          { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+        ]
   const tx = new Transaction().add(
     createAssociatedTokenAccountIdempotentInstruction(traveler, travelerAta, traveler, mint),
-    new TransactionInstruction({
-      programId,
-      keys: [
-        { pubkey: traveler, isSigner: true, isWritable: true },
-        { pubkey: config, isSigner: false, isWritable: false },
-        { pubkey: escrow, isSigner: false, isWritable: true },
-        { pubkey: vault, isSigner: false, isWritable: true },
-        { pubkey: travelerAta, isSigner: false, isWritable: true },
-        { pubkey: mint, isSigner: false, isWritable: false },
-        { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-      ],
-      data,
-    }),
+    new TransactionInstruction({ programId, keys, data }),
   )
+  onProgress?.('confirming')
   return sendTransaction(plan.rpcUrl, tx)
 }
 
-export async function topUpUsdc(plan: SolanaDepositPlan): Promise<{ signature: string; traveler: string }> {
-  const { programId } = requireDeployed(plan)
-  const wallet = provider()
-  if (!wallet.publicKey) await wallet.connect()
-  const traveler = wallet.publicKey!
-  const mint = new PublicKey(plan.usdcMint)
-  const travelerAta = await getAssociatedTokenAddress(mint, traveler)
-  const { config, escrow, vault } = pdas(programId, plan.escrowId)
-  const data = Buffer.concat([Buffer.from([TAG_TOP_UP]), u64(BigInt(plan.amount))])
-  const tx = new Transaction().add(
-    createAssociatedTokenAccountIdempotentInstruction(traveler, travelerAta, traveler, mint),
-    new TransactionInstruction({
-      programId,
-      keys: [
-        { pubkey: traveler, isSigner: true, isWritable: true },
-        { pubkey: config, isSigner: false, isWritable: false },
-        { pubkey: escrow, isSigner: false, isWritable: true },
-        { pubkey: vault, isSigner: false, isWritable: true },
-        { pubkey: travelerAta, isSigner: false, isWritable: true },
-        { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-      ],
-      data,
-    }),
-  )
-  return sendTransaction(plan.rpcUrl, tx)
+/** USDC in the traveler wallet that paid this trip. Null if this browser never deposited. */
+export async function readTravelerUsdc(missionId: string): Promise<{ address: string; usdc: number } | null> {
+  const raw = localStorage.getItem(payerKey(missionId))
+  if (!raw) return null
+  const record = JSON.parse(raw) as PayerRecord
+  const owner = new PublicKey(record.address)
+  const mint = new PublicKey(record.mint)
+  const ata = await getAssociatedTokenAddress(mint, owner)
+  const connection = connectionFor(record.rpcUrl)
+  const account = await connection.getAccountInfo(ata)
+  if (!account) return { address: record.address, usdc: 0 }
+  const balance = await connection.getTokenAccountBalance(ata)
+  return { address: record.address, usdc: Number(balance.value.uiAmount ?? 0) }
 }
 
 function signatureBytes(signed: { signature: Uint8Array } | Uint8Array): Uint8Array {
   const raw = signed instanceof Uint8Array ? signed : signed.signature
-  if (raw.length !== 64) throw new Error('La wallet no devolvió una firma ed25519 de 64 bytes.')
+  if (raw.length !== 64) throw new Error('The wallet did not return a 64-byte ed25519 signature.')
   return raw
 }
 
 export async function closeEscrow(plan: SolanaClosePlan): Promise<string> {
   const { programId, payee } = requireDeployed(plan)
   if (!plan.messageBase64) {
-    throw new Error('El escrow no está desplegado. Corré npm run solana:deploy y configurá SOLANA_PROGRAM_ID.')
+    throw new Error('The escrow is not deployed, so there is no voucher to sign.')
   }
   const wallet = provider()
   if (!wallet.publicKey) await wallet.connect()
-  const traveler = wallet.publicKey!
+  const traveler = wallet.publicKey
+  if (!traveler) throw new Error('The wallet did not return an account.')
   const message = Uint8Array.from(Buffer.from(plan.messageBase64, 'base64'))
   const signature = signatureBytes(await wallet.signMessage(message, 'utf8'))
   const mint = new PublicKey(plan.usdcMint)
   const travelerAta = await getAssociatedTokenAddress(mint, traveler)
   const payeeAta = await getAssociatedTokenAddress(mint, payee)
   const { config, escrow, vault } = pdas(programId, plan.escrowId)
-  const data = Buffer.concat([Buffer.from([TAG_CLOSE]), u64(BigInt(plan.cumulativeAmount))])
   const tx = new Transaction().add(
     createAssociatedTokenAccountIdempotentInstruction(traveler, payeeAta, payee, mint),
     Ed25519Program.createInstructionWithPublicKey({
@@ -202,11 +242,10 @@ export async function closeEscrow(plan: SolanaClosePlan): Promise<string> {
         { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
         { pubkey: SYSVAR_INSTRUCTIONS_PUBKEY, isSigner: false, isWritable: false },
       ],
-      data,
+      data: Buffer.concat([Buffer.from([TAG_CLOSE]), u64(BigInt(plan.cumulativeAmount))]),
     }),
   )
-  const sent = await sendTransaction(plan.rpcUrl, tx)
-  return sent.signature
+  return sendTransaction(plan.rpcUrl, tx)
 }
 
 export async function refundEscrow(plan: {
@@ -218,7 +257,8 @@ export async function refundEscrow(plan: {
   const programId = new PublicKey(plan.programId)
   const wallet = provider()
   if (!wallet.publicKey) await wallet.connect()
-  const traveler = wallet.publicKey!
+  const traveler = wallet.publicKey
+  if (!traveler) throw new Error('The wallet did not return an account.')
   const mint = new PublicKey(plan.usdcMint)
   const travelerAta = await getAssociatedTokenAddress(mint, traveler)
   const { config, escrow, vault } = pdas(programId, plan.escrowId)
@@ -236,6 +276,5 @@ export async function refundEscrow(plan: {
       data: Buffer.from([TAG_REFUND]),
     }),
   )
-  const sent = await sendTransaction(plan.rpcUrl, tx)
-  return sent.signature
+  return sendTransaction(plan.rpcUrl, tx)
 }

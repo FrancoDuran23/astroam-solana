@@ -492,6 +492,47 @@ export class MissionProductService {
     }
   }
 
+  async cancelMission(missionId: string) {
+    const mission = await this.load(missionId)
+    if (mission.status === 'cancelled') {
+      return {
+        status: 'cancelled' as const,
+        txHash: mission.closeTxHash,
+        explorerUrl: mission.closeExplorerUrl,
+        refundedUsdc: mission.refundedUsdc,
+      }
+    }
+    if (mission.paymentStatus !== 'paid' || !mission.channelId) {
+      throw new Error('Only a paid trip can be cancelled and refunded')
+    }
+    if (mission.status !== 'paid' || mission.iccid || BigInt(mission.meteredBytes || '0') > 0n) {
+      throw new Error('This trip already started; finish it instead so what you used is settled')
+    }
+    if (this.solanaDeposit(mission.id, mission.budgetUsdc).deployed) {
+      throw unavailable('The deposit is in the Solana escrow. Refund it from Phantom or Solflare.')
+    }
+
+    const outcome = await this.rail.closeChannel(mission.channelId)
+    const alreadyClosed = outcome.kind === 'failed' && outcome.detail.includes('already closed')
+    if (outcome.kind === 'failed' && !alreadyClosed) {
+      throw new Error(`Could not refund the deposit: ${outcome.detail}`)
+    }
+    if (outcome.kind === 'blocked') {
+      throw new Error(`Could not refund the deposit: ${outcome.detail}`)
+    }
+
+    mission.status = 'cancelled'
+    mission.esimStatus = 'disabled'
+    mission.settledUsdc = 0
+    mission.refundedUsdc = mission.budgetUsdc
+    mission.balanceUsdc = 0
+    await this.repo.save(mission)
+    return {
+      status: 'cancelled' as const,
+      refundedUsdc: mission.refundedUsdc,
+    }
+  }
+
   async finishMission(missionId: string) {
     const mission = await this.load(missionId)
     if (mission.paymentStatus !== 'paid') {

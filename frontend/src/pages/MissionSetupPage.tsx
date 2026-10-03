@@ -7,46 +7,49 @@ import StepDuration from '../components/mission/StepDuration'
 import StepBudget from '../components/mission/StepBudget'
 import StepConfirm from '../components/mission/StepConfirm'
 import ActivationOverlay from '../components/mission/ActivationOverlay'
+import WalletDeposit from '../components/mission/WalletDeposit'
 import { useMission } from '../hooks/useMission'
-import { addDays, today } from '../utils/missionUtils'
-import { connectSolanaWallet, depositUsdc, solanaTxUrl, walletError } from '../chain/solana'
-import type { PaymentIntentInfo, WizardData, WizardStep } from '../types/mission'
+import { addDays, shortTx, today } from '../utils/missionUtils'
+import type { CancelResult, PaymentIntentInfo, WizardData, WizardStep } from '../types/mission'
 
-const STEP_LABELS = ['DESTINO', 'DURACIÓN', 'PRESUPUESTO', 'CONFIRMAR']
+const STEP_LABELS = ['DESTINATION', 'DATES', 'BUDGET', 'CONFIRM']
 
 const DEFAULT_DATA: WizardData = {
   destination: null,
   startDate: today(),
   endDate: addDays(today(), 2),
-  budgetUsdc: 10,
-  dailyLimitUsdc: 3,
+  budgetUsdc: 5,
+  dailyLimitUsdc: 5,
   alertAt20pct: true,
   autoPauseAtLimit: true,
 }
 
+const CARD = 'bg-cardbg glass rounded-3xl border border-cardborder shadow-[0_0_40px_rgba(123,92,255,0.12)] p-5 sm:p-8'
+
 export default function MissionSetupPage() {
   const navigate = useNavigate()
-  const {
-    createMission,
-    createPaymentIntent,
-    confirmPayment,
-    activate,
-    backendError,
-    retryBackend,
-    isDemoMode,
-    caps,
-  } = useMission()
+  const { mission, createMission, createPaymentIntent, confirmPayment, activate, cancel, backendError, retryBackend, isDemoMode, caps } = useMission()
 
   const [step, setStep] = useState<WizardStep>(1)
   const [data, setData] = useState<WizardData>(DEFAULT_DATA)
   const [activating, setActivating] = useState(false)
+  const [preparing, setPreparing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // API Payment flow state
+  // API payment flow state
   const [paymentIntent, setPaymentIntent] = useState<PaymentIntentInfo | null>(null)
+  const [txHashInput, setTxHashInput] = useState('')
   const [paymentValidating, setPaymentValidating] = useState(false)
-  const [walletAddress, setWalletAddress] = useState<string | null>(null)
-  const [depositTx, setDepositTx] = useState<string | null>(null)
+
+  // A trip whose deposit went through but was never activated (the page was closed
+  // or the eSIM failed): its USDC sits in the escrow until the trip is activated or cancelled.
+  const [cancelResult, setCancelResult] = useState<CancelResult | null>(null)
+  const [recovering, setRecovering] = useState(false)
+  const stalledTrip =
+    !isDemoMode && !paymentIntent && !activating && !preparing && mission?.status === 'paid' && !mission.iccid ? mission : null
+
+  const simulated = isDemoMode || !caps?.solanaProgramId
+  const networkLabel = simulated ? 'Simulated payments' : 'Solana Devnet'
 
   function update(field: string, value: unknown) {
     setData((prev) => ({ ...prev, [field]: value }))
@@ -56,17 +59,8 @@ export default function MissionSetupPage() {
     if (step === 1) return data.destination !== null
     if (step === 2) return data.startDate <= data.endDate
     if (step === 3) {
-      const b = data.budgetUsdc
-      const d = data.dailyLimitUsdc
-      return (
-        Number.isFinite(b) &&
-        Number.isFinite(d) &&
-        !isNaN(b) &&
-        !isNaN(d) &&
-        b > 0 &&
-        d > 0 &&
-        d <= b
-      )
+      const { budgetUsdc: b, dailyLimitUsdc: d } = data
+      return Number.isFinite(b) && Number.isFinite(d) && b > 0 && d > 0 && d <= b
     }
     return true
   }
@@ -76,117 +70,173 @@ export default function MissionSetupPage() {
   }
 
   function back() {
-    if (step > 1) setStep((prev) => (prev - 1) as WizardStep)
+    if (paymentIntent) setPaymentIntent(null)
+    else if (step > 1) setStep((prev) => (prev - 1) as WizardStep)
     else navigate('/')
   }
 
   async function handleConfirm() {
     setError(null)
+    setPreparing(true)
     try {
       if (isDemoMode) {
         setActivating(true)
         await createMission(data)
       } else {
-        // API Mode
-        if (!caps || !caps.backendAvailable) {
-          throw new Error('Servidor backend no disponible. Verificá la conexión.')
-        }
+        if (!caps || !caps.backendAvailable) throw new Error('The AstroAm server is not reachable. Check the connection and try again.')
         const created = await createMission(data)
-        const intent = await createPaymentIntent(created)
-        setPaymentIntent(intent)
+        setPaymentIntent(await createPaymentIntent(created))
       }
     } catch (e) {
       setActivating(false)
-      setError(e instanceof Error ? e.message : 'Error al procesar la misión')
+      setError(e instanceof Error ? e.message : 'Could not create the mission')
+    } finally {
+      setPreparing(false)
     }
   }
 
-  async function handleConnectWallet() {
-    setError(null)
-    try {
-      setWalletAddress(await connectSolanaWallet())
-    } catch (e) {
-      setError(walletError(e))
-    }
-  }
-
-  async function handleDeposit() {
-    if (!paymentIntent?.solana) return
+  async function handleConfirmPaymentSubmit() {
+    if (!paymentIntent) return
     setError(null)
     setPaymentValidating(true)
     try {
-      const { signature, traveler } = await depositUsdc(paymentIntent.solana)
-      setDepositTx(signature)
-      const res = await confirmPayment(paymentIntent.intentId, signature, traveler)
-      if (res.valid) {
-        setPaymentIntent(null)
-        setActivating(true)
-        await activate()
-      } else {
-        setError('El depósito no fue aceptado por el servidor.')
-      }
+      const txHash = txHashInput.trim() || `0x${Date.now().toString(16)}${Math.random().toString(16).slice(2, 10)}`
+      const res = await confirmPayment(paymentIntent.intentId, txHash)
+      if (!res.valid) throw new Error('The deposit was not accepted.')
+      setPaymentIntent(null)
+      setActivating(true)
+      await activate()
     } catch (e) {
-      setError(walletError(e))
+      setActivating(false)
+      setError(e instanceof Error ? e.message : 'Could not confirm the deposit')
     } finally {
       setPaymentValidating(false)
     }
   }
 
-  function handleActivationComplete() {
-    navigate('/mission/esim')
+  // The wallet already sent the deposit; errors surface in the panel.
+  async function handleWalletDeposit(txHash: string) {
+    if (!paymentIntent) return
+    const res = await confirmPayment(paymentIntent.intentId, txHash)
+    if (!res.valid) throw new Error('The deposit was not accepted.')
+    setPaymentIntent(null)
+    setActivating(true)
+    try {
+      await activate()
+    } catch (e) {
+      setActivating(false)
+      setError(e instanceof Error ? e.message : 'Could not activate the eSIM')
+    }
   }
 
-  return (
-    <MobileAppShell
-      title={`NUEVA MISIÓN (${step}/4)`}
-      showBack={true}
-      showBottomNav={false}
-    >
-      {/* Activation overlay */}
-      {activating && <ActivationOverlay onComplete={handleActivationComplete} />}
+  async function handleCancelStalled() {
+    setError(null)
+    setRecovering(true)
+    try {
+      setCancelResult(await cancel())
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not refund the deposit')
+    } finally {
+      setRecovering(false)
+    }
+  }
 
-      {/* Backend Error Banner when in API Mode */}
+  async function handleActivateStalled() {
+    setError(null)
+    setRecovering(true)
+    try {
+      setActivating(true)
+      await activate()
+    } catch (e) {
+      setActivating(false)
+      setError(e instanceof Error ? e.message : 'Could not activate the eSIM')
+    } finally {
+      setRecovering(false)
+    }
+  }
+
+  const title = paymentIntent
+    ? 'Load your fuel'
+    : step === 1
+      ? 'Pick your destination'
+      : step === 2
+        ? 'Set the dates'
+        : step === 3
+          ? 'Set your budget'
+          : 'Confirm the mission'
+
+  return (
+    <MobileAppShell title={`NEW MISSION (${step}/4)`} showBack showBottomNav={false}>
+      {activating && <ActivationOverlay simulated={simulated} onComplete={() => navigate('/mission/esim')} />}
+
+      {/* Server error banner */}
       {!isDemoMode && backendError && (
-        <div className="mb-6 p-6 bg-white rounded-3xl border border-alerta/30 shadow-md">
+        <div role="alert" className="mb-6 p-6 bg-cardbg glass rounded-3xl border border-alerta/40">
           <div className="flex items-center gap-3 text-alerta mb-3">
             <span className="material-symbols-outlined text-2xl">cloud_off</span>
-            <h2 className="font-mono text-sm font-bold uppercase tracking-wider">[ BACKEND NO DISPONIBLE ]</h2>
+            <h2 className="font-mono text-sm font-bold uppercase tracking-wider">[ SERVER UNAVAILABLE ]</h2>
           </div>
-          <p className="font-sans text-sm text-textsecondary mb-4 leading-relaxed">
-            {backendError}
-          </p>
-          {caps?.missingConfiguration && caps.missingConfiguration.length > 0 && (
-            <div className="mb-4 p-3 bg-bglight rounded-xl border border-cardborder font-mono text-xs text-textsecondary">
-              <span className="font-bold text-textprimary">Servicios pendientes en el servidor:</span>
-              <ul className="list-disc list-inside mt-1 space-y-0.5">
-                {caps.missingConfiguration.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            </div>
-          )}
+          <p className="font-sans text-sm text-textsecondary mb-4 leading-relaxed">{backendError}</p>
           <button
             type="button"
             onClick={() => void retryBackend()}
             className="w-full sm:w-auto px-6 py-3 rounded-full bg-primaryviolet text-white font-sans font-semibold text-xs uppercase tracking-wider hover:bg-primaryviolet-hover transition-all flex items-center justify-center gap-2 min-h-[44px]"
           >
             <span className="material-symbols-outlined text-sm">refresh</span>
-            REINTENTAR CONEXIÓN
+            RETRY
           </button>
+        </div>
+      )}
+
+      {/* Paid but never activated */}
+      {stalledTrip && (
+        <div role="alert" className="mb-6 p-6 bg-cardbg glass rounded-3xl border border-starlight/40">
+          <span className="font-mono text-[11px] font-bold text-starlight tracking-widest uppercase block mb-2">[ UNFINISHED TRIP ]</span>
+          <p className="font-sans text-sm text-textsecondary mb-4 leading-relaxed">
+            Your {stalledTrip.destination.name} deposit of {stalledTrip.budgetUsdc} USDC went through but the eSIM was never activated.
+            Activate it now, or cancel and get the whole deposit back.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <button
+              type="button"
+              disabled={recovering}
+              onClick={() => void handleActivateStalled()}
+              className="px-6 py-3 rounded-full bg-primaryviolet text-white font-sans font-semibold text-xs uppercase tracking-wider hover:bg-primaryviolet-hover disabled:opacity-50 transition-all min-h-[44px]"
+            >
+              ACTIVATE eSIM
+            </button>
+            <button
+              type="button"
+              disabled={recovering}
+              onClick={() => void handleCancelStalled()}
+              className="px-6 py-3 rounded-full border border-starlight/50 text-starlight font-sans font-semibold text-xs uppercase tracking-wider hover:bg-starlight/10 disabled:opacity-50 transition-all min-h-[44px]"
+            >
+              {recovering ? 'REFUNDING…' : 'CANCEL AND REFUND'}
+            </button>
+          </div>
+        </div>
+      )}
+      {cancelResult && (
+        <div role="status" className="mb-6 p-6 bg-cardbg glass rounded-3xl border border-tealbrand/40">
+          <span className="font-mono text-[11px] font-bold text-tealbrand tracking-widest uppercase block mb-2">[ DEPOSIT REFUNDED ]</span>
+          <p className="font-sans text-sm text-textsecondary leading-relaxed">
+            {cancelResult.refundedUsdc?.toFixed(3)} USDC went back to your wallet. In Phantom or Solflare look under Tokens → USDC.
+            {cancelResult.explorerUrl && (
+              <>
+                {' '}
+                <a href={cancelResult.explorerUrl} target="_blank" rel="noreferrer" className="text-[#B9A6FF] underline">
+                  See the transaction
+                </a>
+              </>
+            )}
+          </p>
         </div>
       )}
 
       {/* Section label */}
       <div className="flex flex-col gap-1 mb-6">
-        <span className="font-mono text-[11px] font-bold text-primaryviolet tracking-widest uppercase">
-          [ NUEVA MISIÓN // CONFIGURACIÓN ]
-        </span>
-        <h1 className="font-display text-2xl sm:text-3xl font-bold text-textprimary">
-          {step === 1 && 'Elegí tu destino'}
-          {step === 2 && 'Definí la duración'}
-          {step === 3 && 'Configurá tu presupuesto'}
-          {step === 4 && 'Confirmá la misión'}
-        </h1>
+        <span className="font-mono text-[11px] font-bold text-[#B9A6FF] tracking-widest uppercase">[ NEW MISSION // SETUP ]</span>
+        <h1 className="font-display text-2xl sm:text-3xl font-bold text-textprimary text-glow">{title}</h1>
       </div>
 
       {/* Wizard progress */}
@@ -195,21 +245,16 @@ export default function MissionSetupPage() {
       </div>
 
       {/* Step content */}
-      <div className="bg-white rounded-3xl border border-cardborder shadow-sm p-5 sm:p-8">
-        {step === 1 && (
-          <StepDestination
-            selected={data.destination}
-            onSelect={(d) => update('destination', d)}
-          />
-        )}
-        {step === 2 && (
+      <div className={CARD}>
+        {!paymentIntent && step === 1 && <StepDestination selected={data.destination} onSelect={(d) => update('destination', d)} />}
+        {!paymentIntent && step === 2 && (
           <StepDuration
             startDate={data.startDate}
             endDate={data.endDate}
             onChange={(s, e) => setData((prev) => ({ ...prev, startDate: s, endDate: e }))}
           />
         )}
-        {step === 3 && data.destination && (
+        {!paymentIntent && step === 3 && data.destination && (
           <StepBudget
             destination={data.destination}
             budgetUsdc={data.budgetUsdc}
@@ -219,112 +264,114 @@ export default function MissionSetupPage() {
             onChange={update}
           />
         )}
-        {step === 4 && !paymentIntent && (
-          <StepConfirm
-            data={data}
-            onBack={back}
-            onConfirm={() => void handleConfirm()}
-          />
+        {!paymentIntent && step === 4 && (
+          <StepConfirm data={data} networkLabel={networkLabel} busy={preparing} onBack={back} onConfirm={() => void handleConfirm()} />
         )}
 
-        {/* Payment Intent Modal / Section in API mode */}
-        {paymentIntent?.solana && (
-          <div className="flex flex-col gap-5">
-            <div className="border-b border-cardborder pb-4">
-              <span className="font-mono text-xs font-bold text-primaryviolet uppercase tracking-wider block mb-1">
-                [ SOLANA DEVNET // DEPÓSITO USDC ]
-              </span>
-              <h3 className="font-display text-xl font-bold text-textprimary">
-                Depositá {paymentIntent.solana.amountUsdc} USDC
-              </h3>
-              <p className="font-sans text-sm text-textsecondary mt-2">
-                Un solo depósito. El consumo se mide off-chain y un cierre paga lo usado y devuelve el resto. No hay un débito por cada MB.
-              </p>
+        {/* Deposit */}
+        {paymentIntent && (
+          <div className="flex flex-col gap-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-cardborder pb-4">
+              <div>
+                <span className="font-mono text-xs font-bold text-[#B9A6FF] uppercase tracking-wider block mb-1">
+                  [ {networkLabel.toUpperCase()} // MISSION DEPOSIT ]
+                </span>
+                <h3 className="font-display text-xl font-bold text-textprimary">
+                  Deposit {paymentIntent.amount} {paymentIntent.asset}
+                </h3>
+                <p className="text-xs text-textsecondary mt-1">
+                  It goes into your trip&apos;s escrow, not to us. Unused USDC comes back when you end the trip.
+                </p>
+              </div>
+              {simulated && (
+                <span className="self-start sm:self-auto px-2.5 py-1 rounded-full text-xs font-mono font-bold bg-starlight/10 text-starlight border border-starlight/30">
+                  SIMULATED
+                </span>
+              )}
             </div>
-            <div className="grid gap-3 font-mono text-xs">
-              <div className="bg-bglight p-3.5 rounded-xl border border-cardborder">
-                <span className="text-textsecondary block text-[10px]">RED</span>
-                <span className="font-bold text-textprimary">Solana Devnet</span>
-              </div>
-              <div className="bg-bglight p-3.5 rounded-xl border border-cardborder">
-                <span className="text-textsecondary block text-[10px]">USDC (6 DECIMALES)</span>
-                <a className="font-bold text-primaryviolet break-all" href={`${paymentIntent.solana.explorer}/address/${paymentIntent.solana.usdcMint}?cluster=devnet`} target="_blank" rel="noreferrer">
-                  {paymentIntent.solana.usdcMint}
-                </a>
-              </div>
-              <div className="bg-bglight p-3.5 rounded-xl border border-cardborder">
-                <span className="text-textsecondary block text-[10px]">PROGRAMA</span>
-                {paymentIntent.solana.programId ? (
-                  <a className="font-bold text-primaryviolet break-all" href={`${paymentIntent.solana.explorer}/address/${paymentIntent.solana.programId}?cluster=devnet`} target="_blank" rel="noreferrer">
-                    {paymentIntent.solana.programId}
-                  </a>
-                ) : (
-                  <span className="font-bold text-alerta">Sin desplegar. Corré npm run solana:deploy y poné SOLANA_PROGRAM_ID en el servidor.</span>
-                )}
-              </div>
-            </div>
-            {walletAddress && (
-              <p className="font-mono text-[11px] text-textsecondary">
-                Wallet: <span className="text-textprimary font-bold">{walletAddress}</span>
-              </p>
+
+            {paymentIntent.solana?.deployed ? (
+              <WalletDeposit
+                missionId={mission?.id ?? ''}
+                plan={paymentIntent.solana}
+                onDeposited={handleWalletDeposit}
+                label={`Pay ${paymentIntent.amount} USDC with wallet`}
+              />
+            ) : (
+              <>
+                <div className="flex flex-col items-center gap-6">
+                  {paymentIntent.qr && (
+                    <div className="flex flex-col items-center justify-center p-4 bg-white rounded-2xl w-full max-w-[260px] shadow-[0_0_30px_rgba(123,92,255,0.3)]">
+                      <img src={paymentIntent.qr} alt="Deposit QR code" className="w-52 h-52 object-contain rounded-lg" />
+                    </div>
+                  )}
+                  {paymentIntent.payTo && (
+                    <div className="w-full bg-warmneutral p-3.5 rounded-xl border border-cardborder font-mono text-xs">
+                      <span className="text-textsecondary block text-[10px]">PAYMENT CHANNEL ADDRESS</span>
+                      <span className="font-bold text-textprimary text-[10px] break-all">{paymentIntent.payTo}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="border-t border-cardborder pt-4">
+                  {!simulated && (
+                    <>
+                      <label htmlFor="tx-hash" className="block font-mono text-xs text-textsecondary mb-1">
+                        TRANSACTION HASH
+                      </label>
+                      <input
+                        id="tx-hash"
+                        type="text"
+                        value={txHashInput}
+                        onChange={(e) => setTxHashInput(e.target.value)}
+                        placeholder="transaction signature"
+                        className="w-full mb-3 px-4 py-3 rounded-xl border border-[#6B6E9E] bg-warmneutral font-mono text-xs text-textprimary focus:outline-none focus:border-primaryviolet"
+                      />
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    disabled={paymentValidating || (!simulated && !txHashInput.trim())}
+                    onClick={() => void handleConfirmPaymentSubmit()}
+                    className="w-full px-6 py-3.5 rounded-full bg-tealbrand text-[#04161A] font-sans text-sm font-bold uppercase tracking-wider shadow-[0_0_22px_rgba(47,208,221,0.5)] hover:opacity-90 disabled:opacity-50 transition-all flex items-center justify-center gap-2 min-h-[48px]"
+                  >
+                    <span className={`material-symbols-outlined text-base ${paymentValidating ? 'animate-spin' : ''}`}>
+                      {paymentValidating ? 'refresh' : 'check_circle'}
+                    </span>
+                    {simulated ? 'SIMULATE DEPOSIT' : 'CONFIRM DEPOSIT'}
+                  </button>
+                </div>
+              </>
             )}
-            {depositTx && (
-              <a className="font-mono text-[11px] text-primaryviolet font-bold break-all" href={solanaTxUrl(depositTx)} target="_blank" rel="noreferrer">
-                Depósito en el explorer: {depositTx}
-              </a>
-            )}
-            <div className="flex flex-col sm:flex-row gap-3">
-              <button
-                type="button"
-                onClick={() => void handleConnectWallet()}
-                className="flex-1 py-3.5 rounded-xl border border-cardborder bg-white text-textprimary font-mono text-xs font-bold uppercase tracking-wider min-h-[48px]"
-              >
-                {walletAddress ? 'WALLET CONECTADA' : 'CONECTAR PHANTOM O SOLFLARE'}
-              </button>
-              <button
-                type="button"
-                disabled={paymentValidating || !paymentIntent.solana.deployed}
-                onClick={() => void handleDeposit()}
-                className="flex-1 py-3.5 rounded-xl bg-tealbrand text-white font-mono text-xs font-bold uppercase tracking-wider disabled:opacity-40 min-h-[48px]"
-              >
-                {paymentValidating ? 'ENVIANDO…' : 'DEPOSITAR USDC'}
-              </button>
-            </div>
-            <p className="font-sans text-xs text-textsecondary">
-              En Phantom o Solflare elegí Devnet. Hace falta SOL de prueba para el fee y USDC de Circle en esta red (mint de arriba, 6 decimales).
-            </p>
+
+            <p className="text-center font-mono text-[11px] text-textsecondary">Intent {shortTx(paymentIntent.intentId)}</p>
           </div>
         )}
 
-        {paymentIntent && !paymentIntent.solana && (
-          <p className="font-mono text-xs text-alerta">La API no devolvió un plan de depósito en Solana.</p>
-        )}
-
-        {/* Error */}
         {error && (
-          <div className="mt-4 p-3 rounded-xl bg-alerta/10 border border-alerta/20 font-mono text-xs text-alerta">
+          <div role="alert" className="mt-4 p-3 rounded-xl bg-alerta/10 border border-alerta/30 font-mono text-xs text-alerta">
             {error}
           </div>
         )}
       </div>
 
-      {/* Navigation (steps 1-3) Sticky CTA on Mobile */}
-      {step < 4 && (
-        <div className="mt-6 sm:mt-8 flex items-center justify-between gap-3 sticky bottom-4 z-20 bg-white/95 backdrop-blur-md p-3 rounded-2xl border border-cardborder shadow-lg">
+      {/* Navigation (steps 1-3), sticky on mobile */}
+      {!paymentIntent && step < 4 && (
+        <div className="mt-6 sm:mt-8 flex items-center justify-between gap-3 sticky bottom-4 z-20 bg-bglight/85 backdrop-blur-md p-3 rounded-2xl border border-cardborder shadow-[0_0_30px_rgba(123,92,255,0.15)]">
           <button
             type="button"
             onClick={back}
-            className="px-6 py-3.5 rounded-full border border-cardborder bg-white text-textsecondary font-sans font-semibold text-xs uppercase tracking-wider hover:bg-bglight hover:border-primaryviolet/30 transition-all min-h-[48px]"
+            className="px-6 py-3.5 rounded-full border border-cardborder bg-warmneutral text-textsecondary font-sans font-semibold text-xs uppercase tracking-wider hover:text-white hover:border-primaryviolet/50 transition-all min-h-[48px]"
           >
-            ATRÁS
+            BACK
           </button>
           <button
             type="button"
             onClick={next}
             disabled={!canAdvance()}
-            className="flex-1 sm:flex-none px-8 py-3.5 rounded-full bg-primaryviolet text-white font-sans font-bold text-xs uppercase tracking-wider shadow-[0_4px_14px_rgba(105,65,255,0.3)] hover:bg-primaryviolet-hover hover:-translate-y-0.5 disabled:opacity-40 disabled:cursor-not-allowed disabled:translate-y-0 disabled:shadow-none transition-all flex items-center justify-center gap-2 min-h-[48px]"
+            className="flex-1 sm:flex-none px-8 py-3.5 rounded-full bg-primaryviolet text-white font-sans font-bold text-xs uppercase tracking-wider shadow-[0_0_20px_rgba(123,92,255,0.5)] hover:bg-primaryviolet-hover hover:-translate-y-0.5 disabled:opacity-40 disabled:cursor-not-allowed disabled:translate-y-0 disabled:shadow-none transition-all flex items-center justify-center gap-2 min-h-[48px]"
           >
-            CONTINUAR
+            CONTINUE
             <span className="material-symbols-outlined text-base">arrow_forward</span>
           </button>
         </div>
