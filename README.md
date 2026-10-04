@@ -28,7 +28,7 @@ Programa nativo en `programs/astroam-escrow` (no debita por MB):
 4. **refund** — después de `SOLANA_TIMEOUT_SECONDS` (7 días por defecto), devuelve el depósito entero si nadie cerró.
 5. **topUp** — el mismo viajero puede sumar USDC antes del cierre.
 
-El escrow **no está desplegado**. Este entorno no tiene clave ni SOL de faucet, así que no hay program id para pegar. Hasta que un humano despliegue y ponga `SOLANA_PROGRAM_ID` y `SOLANA_PAYEE_ADDRESS` en `.env`, el botón de depósito queda deshabilitado y finalizar muestra la cotización del vale con `awaiting_close`.
+El escrow **está desplegado en Solana devnet**. El program id que imprimió `solana program deploy` es `8QXPo6yVxZuC3goYzHVLsxVkE1J6BaEqZvfW9e3Do2uq`. El payee, la misma cuenta pública del deployer, es `GmqSpjbis6DZV4easxKdPpRZmhx7RBoDJDsFB2psnYDx`. Esos dos valores están en `.env.example`. Con `cp .env.example .env` el botón de depósito de Phantom o Solflare manda USDC a ese programa. La transacción de deploy es `4APAdDDXSVWkkuqWSmhwJvB7GZDoqbtqZcEivqjsNJCYGFUNQEvsRRYM2ctxzrAVohbxrk4v5pVUSbygvmNZSiMq` y la de initialize es `3QdiV1oBvnbXEFDzdi43LVEED6dgGmnadwjtkti9D2mscwoPVqqx2Zk81aBfCVsLCEbXbeefdFrZwgnJNXSJJNy7`.
 
 ## Desplegarlo
 
@@ -75,7 +75,7 @@ cd frontend && npm install && npm run dev   # app en http://localhost:5173
 
 No crees `frontend/.env`: sin `VITE_API_BASE_URL`, Vite reenvía `/api` al backend. Dejá `ASTROAM_LIVE_ENABLED=false` y `CONNECTIVITY_PROVIDER=fake`. `PAYMENT_RAIL=fake` mantiene la medición de demo en memoria; el USDC se mueve solo cuando la wallet manda deposit o close.
 
-La app del viajero es la misma interfaz oscura que AstroAm en Monad (reels, starfield, landing de reembolso). Acá la wallet es Phantom o Solflare, no MetaMask. Sin `SOLANA_PROGRAM_ID` el depósito es simulado y **End mission** muestra la cotización: 250 MB en Brasil a 0,0025 USDC/MB sobre 10 USDC son 0,625 usados y 9,375 devueltos. Con el programa configurado, Phantom deposita USDC de Circle, firma un solo cierre y la landing muestra el USDC que volvió a la wallet. **Refund after timeout** queda deshabilitado hasta que el programa esté configurado. El tráfico de demo sigue en FakeProvider, sin Citrus.
+La app del viajero es la misma interfaz oscura que AstroAm en Monad (reels, starfield, landing de reembolso). Acá la wallet es Phantom o Solflare, no MetaMask. `.env.example` ya trae el program id de devnet, así que el depósito no es simulado: Phantom deposita USDC de Circle, firma un solo cierre y la landing muestra el USDC que volvió a la wallet. **Refund after timeout** usa ese mismo programa. El tráfico de demo sigue en FakeProvider, sin Citrus. 250 MB en Brasil a 0,0025 USDC/MB sobre 10 USDC son 0,625 usados y 9,375 devueltos.
 
 ## Cheques
 
