@@ -18,3 +18,7 @@ frontend/.env.*
 !frontend/.env.example
 # TypeScript incremental build info
 *.tsbuildinfo
+
+# Solana program build
+programs/astroam-escrow/target/
+**/*.so

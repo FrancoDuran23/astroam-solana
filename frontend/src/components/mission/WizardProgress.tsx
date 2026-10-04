@@ -10,15 +10,15 @@ export default function WizardProgress({ current, labels }: Props) {
 
   return (
     <div className="w-full">
-      {/* Mobile compact header (Paso X de 4) */}
+      {/* Mobile compact header (step X of 4) */}
       <div className="sm:hidden flex flex-col gap-2">
         <div className="flex items-center justify-between font-mono text-xs font-bold">
-          <span className="text-primaryviolet">PASO {current} DE {labels.length}</span>
+          <span className="text-[#B9A6FF]">STEP {current} OF {labels.length}</span>
           <span className="text-textsecondary uppercase tracking-wider">{currentLabel}</span>
         </div>
         <div className="w-full h-1.5 bg-cardborder rounded-full overflow-hidden">
           <div
-            className="h-full bg-gradient-to-r from-primaryviolet to-tealbrand transition-all duration-300"
+            className="h-full bg-gradient-to-r from-primaryviolet to-tealbrand shadow-[0_0_10px_rgba(47,208,221,0.6)] transition-all duration-300"
             style={{ width: `${(current / labels.length) * 100}%` }}
           />
         </div>
@@ -40,8 +40,8 @@ export default function WizardProgress({ current, labels }: Props) {
                     done
                       ? 'bg-primaryviolet text-white'
                       : active
-                        ? 'bg-primaryviolet text-white shadow-[0_0_0_3px_rgba(105,65,255,0.2)]'
-                        : 'bg-white border-2 border-cardborder text-textsecondary'
+                        ? 'bg-primaryviolet text-white shadow-[0_0_0_3px_rgba(123,92,255,0.3),0_0_18px_rgba(123,92,255,0.6)]'
+                        : 'bg-cardbg border-2 border-cardborder text-textsecondary'
                   }`}
                 >
                   {done ? (
@@ -52,7 +52,7 @@ export default function WizardProgress({ current, labels }: Props) {
                 </div>
                 <span
                   className={`text-[10px] font-mono font-bold tracking-wider uppercase whitespace-nowrap ${
-                    active ? 'text-primaryviolet' : done ? 'text-textprimary' : 'text-textsecondary'
+                    active ? 'text-[#B9A6FF]' : done ? 'text-textprimary' : 'text-textsecondary'
                   }`}
                 >
                   {label}

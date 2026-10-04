@@ -1,89 +1,83 @@
 import { useEffect, useState } from 'react'
-import shipSrc from '../../assets/ship.png'
+import shipSrc from '../../assets/ship-night.png'
+import StarfieldBackground from '../StarfieldBackground'
 import type { ActivationStep } from '../../types/mission'
 
-const STEPS: ActivationStep[] = [
-  { label: 'Conectando wallet demo (Simulado)', status: 'pending' },
-  { label: 'Reservando saldo USDC (Simulado)', status: 'pending' },
-  { label: 'Desplegando State Channel Soroban (Simulado)', status: 'pending' },
-  { label: 'Aprovisionando perfil eSIM demo', status: 'pending' },
-  { label: 'Misión lista (Modo Demo)', status: 'pending' },
-]
+function stepsFor(simulated: boolean): ActivationStep[] {
+  const tag = simulated ? ' (simulated)' : ''
+  return [
+    { label: `Deposit confirmed${tag}`, status: 'pending' },
+    { label: `Payment channel opened${tag}`, status: 'pending' },
+    { label: 'Provisioning the eSIM profile', status: 'pending' },
+    { label: 'Mission ready', status: 'pending' },
+  ]
+}
 
 type Props = {
   onComplete: () => void
+  /** Payments are simulated (no real chain behind them). */
+  simulated?: boolean
 }
 
-export default function ActivationOverlay({ onComplete }: Props) {
-  const [steps, setSteps] = useState<ActivationStep[]>(STEPS)
+export default function ActivationOverlay({ onComplete, simulated = true }: Props) {
+  const [steps, setSteps] = useState<ActivationStep[]>(() => stepsFor(simulated))
   const [currentStep, setCurrentStep] = useState(0)
   const [done, setDone] = useState(false)
+  const total = steps.length
 
   useEffect(() => {
     let idx = 0
+    const timers: ReturnType<typeof setTimeout>[] = []
 
     function advance() {
-      if (idx >= STEPS.length) {
+      if (idx >= total) {
         setDone(true)
-        setTimeout(onComplete, 700)
+        timers.push(setTimeout(onComplete, 700))
         return
       }
 
-      // Mark current as running
       setCurrentStep(idx)
-      setSteps((prev) =>
-        prev.map((s, i) => ({
-          ...s,
-          status: i < idx ? 'done' : i === idx ? 'running' : 'pending',
-        })),
-      )
+      setSteps((prev) => prev.map((s, i) => ({ ...s, status: i < idx ? 'done' : i === idx ? 'running' : 'pending' })))
 
-      // After ~900ms, mark as done and advance
-      setTimeout(() => {
-        setSteps((prev) =>
-          prev.map((s, i) => ({
-            ...s,
-            status: i <= idx ? 'done' : s.status,
-          })),
-        )
-        idx++
-        setTimeout(advance, 300)
-      }, 900)
+      timers.push(
+        setTimeout(() => {
+          setSteps((prev) => prev.map((s, i) => ({ ...s, status: i <= idx ? 'done' : s.status })))
+          idx++
+          timers.push(setTimeout(advance, 300))
+        }, 900),
+      )
     }
 
-    const t = setTimeout(advance, 400)
-    return () => clearTimeout(t)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    timers.push(setTimeout(advance, 400))
+    return () => timers.forEach(clearTimeout)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   return (
-    <div className="fixed inset-0 z-[100] bg-white/95 backdrop-blur-md flex items-center justify-center">
-      {/* Background grid */}
-      <div className="absolute inset-0 fintech-grid opacity-40 pointer-events-none" />
+    <div className="fixed inset-0 z-[100] bg-bglight/90 backdrop-blur-md flex items-center justify-center">
+      <StarfieldBackground className="z-0" />
 
       {/* Orbital glow */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full bg-gradient-to-tr from-primaryviolet/10 via-tealbrand/5 to-transparent blur-3xl pointer-events-none" />
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full bg-gradient-to-tr from-primaryviolet/25 via-tealbrand/10 to-transparent blur-3xl pointer-events-none" />
 
-      <div className="relative z-10 flex flex-col items-center gap-8 px-6 text-center max-w-sm">
+      <div className="relative z-10 flex flex-col items-center gap-8 px-6 text-center max-w-sm w-full">
         {/* Floating ship */}
         <div className={`w-28 h-28 animate-float-ship transition-all duration-700 ${done ? 'scale-110' : ''}`}>
-          <img
-            src={shipSrc}
-            alt="Nave ASTROAM"
-            className="w-full h-full object-contain drop-shadow-[0_12px_28px_rgba(105,65,255,0.4)]"
-          />
+          <img src={shipSrc} alt="AstroAm ship" className="w-full h-full object-contain drop-shadow-[0_0_30px_rgba(123,92,255,0.75)]" />
         </div>
 
         {/* Title */}
         <div className="flex flex-col items-center gap-1">
-          <span className="inline-block px-2.5 py-0.5 rounded-full bg-stellar/20 border border-stellar/40 font-mono text-[10px] font-bold text-textprimary tracking-wider uppercase mb-1">
-            SIMULACIÓN FRONTEND · MODO DEMO
+          {simulated && (
+            <span className="inline-block px-2.5 py-0.5 rounded-full bg-starlight/15 border border-starlight/40 font-mono text-[10px] font-bold text-starlight tracking-wider uppercase mb-1">
+              SIMULATED PAYMENTS
+            </span>
+          )}
+          <span className="font-mono text-[11px] font-bold text-[#B9A6FF] tracking-widest uppercase">
+            {done ? '[ MISSION ACTIVATED ]' : '[ ACTIVATION SEQUENCE ]'}
           </span>
-          <span className="font-mono text-[11px] font-bold text-primaryviolet tracking-widest uppercase">
-            {done ? '[ MISIÓN ACTIVADA ]' : '[ SECUENCIA DE ACTIVACIÓN ]'}
-          </span>
-          <h2 className="font-display text-2xl font-bold text-textprimary">
-            {done ? 'Todo listo para despegar' : 'Preparando tu misión…'}
+          <h2 className="font-display text-2xl font-bold text-textprimary text-glow">
+            {done ? 'Ready for liftoff' : 'Preparing your mission…'}
           </h2>
         </div>
 
@@ -94,19 +88,18 @@ export default function ActivationOverlay({ onComplete }: Props) {
               key={i}
               className={`flex items-center gap-3 p-3.5 rounded-xl border transition-all duration-300 ${
                 step.status === 'done'
-                  ? 'bg-primaryviolet-light border-primaryviolet/30'
+                  ? 'bg-primaryviolet-light border-primaryviolet/40'
                   : step.status === 'running'
-                    ? 'bg-white border-primaryviolet/40 shadow-sm'
-                    : 'bg-bglight border-cardborder opacity-50'
+                    ? 'bg-cardbg border-primaryviolet/60 shadow-[0_0_20px_rgba(123,92,255,0.3)]'
+                    : 'bg-cardbg border-cardborder opacity-50'
               }`}
             >
-              {/* Icon */}
               <div
                 className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 transition-all duration-300 ${
                   step.status === 'done'
                     ? 'bg-primaryviolet'
                     : step.status === 'running'
-                      ? 'bg-white border-2 border-primaryviolet'
+                      ? 'bg-transparent border-2 border-primaryviolet'
                       : 'bg-cardborder'
                 }`}
               >
@@ -120,20 +113,14 @@ export default function ActivationOverlay({ onComplete }: Props) {
               </div>
 
               <span
-                className={`font-sans text-sm font-medium ${
-                  step.status === 'done'
-                    ? 'text-primaryviolet font-semibold'
-                    : step.status === 'running'
-                      ? 'text-textprimary font-semibold'
-                      : 'text-textsecondary'
+                className={`font-sans text-sm font-medium text-left ${
+                  step.status === 'done' ? 'text-[#B9A6FF] font-semibold' : step.status === 'running' ? 'text-textprimary font-semibold' : 'text-textsecondary'
                 }`}
               >
                 {step.label}
               </span>
 
-              {step.status === 'running' && (
-                <span className="ml-auto font-mono text-[10px] text-primaryviolet animate-pulse">···</span>
-              )}
+              {step.status === 'running' && <span className="ml-auto font-mono text-[10px] text-[#B9A6FF] animate-pulse">···</span>}
             </div>
           ))}
         </div>
@@ -141,8 +128,8 @@ export default function ActivationOverlay({ onComplete }: Props) {
         {/* Progress bar */}
         <div className="w-full h-1 bg-cardborder rounded-full overflow-hidden">
           <div
-            className="h-full bg-gradient-to-r from-primaryviolet to-tealbrand transition-all duration-500"
-            style={{ width: `${((currentStep + (done ? 1 : 0)) / STEPS.length) * 100}%` }}
+            className="h-full bg-gradient-to-r from-primaryviolet to-tealbrand shadow-[0_0_10px_rgba(47,208,221,0.7)] transition-all duration-500"
+            style={{ width: `${((currentStep + (done ? 1 : 0)) / total) * 100}%` }}
           />
         </div>
       </div>

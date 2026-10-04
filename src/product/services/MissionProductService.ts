@@ -7,15 +7,28 @@ import { createConnectivitySession, type ConnectivitySession } from '../../model
 import { runReconciliation } from '../../jobs/reconciliation.ts'
 import { parseNonNegativeIntegerRaw, pricePerMibFromPerMbRaw } from '../../shared/money.ts'
 import type { PaymentRail } from '../../rails/PaymentRail.ts'
+import { isSolanaAddress, isSolanaSignature } from '../../shared/solana/base58.ts'
+import { solanaTxUrl } from '../../shared/solana/explorer.ts'
+import {
+  SOLANA_CLUSTER,
+  SOLANA_EXPLORER,
+  SOLANA_RPC_URL,
+  SOLANA_USDC_DECIMALS,
+  SOLANA_USDC_MINT,
+  SPL_TOKEN_PROGRAM_ID,
+} from '../../shared/solana/constants.ts'
+import {
+  buildClosePlan,
+  buildDepositPlan,
+  buildTopUpPlan,
+  escrowIdBase58,
+  type SolanaClosePlan,
+  type SolanaDepositPlan,
+} from '../../shared/solana/voucher.ts'
 
 /** USDC (number) to raw units (1e-7 USDC). */
 function usdcToRaw(usdc: number): bigint {
   return BigInt(Math.round(usdc * 1e7))
-}
-
-/** Raw units (1e-7 USDC) to USDC, rounded to 6 decimals. */
-function rawToUsdc(raw: bigint): number {
-  return Number(raw) / 1e7
 }
 
 /** A non-empty raw-unit environment variable, or `undefined`. */
@@ -68,6 +81,9 @@ export class MissionProductService {
   private getMissingConfiguration(): string[] {
     const missing: string[] = []
     if (!this.rail.isLive) missing.push('PAYMENT_RAIL')
+    if (!buildDepositPlan({ missionId: 'capabilities', budgetUsdc: 0 }).deployed) {
+      missing.push('SOLANA_PROGRAM_ID', 'SOLANA_PAYEE_ADDRESS')
+    }
     if (!process.env.CITRUS_API_KEY) missing.push('CITRUS_API_KEY')
     if (this.isLiveMode()) {
       if (!process.env.ASTROAM_DEMO_ACCESS_TOKEN) missing.push('ASTROAM_DEMO_ACCESS_TOKEN')
@@ -102,7 +118,37 @@ export class MissionProductService {
       liveEnabled: isLive,
       requiresAuth: isLive && Boolean(process.env.ASTROAM_DEMO_ACCESS_TOKEN),
       missingConfiguration: this.getMissingConfiguration(),
+      ...this.solanaCapabilities(),
     }
+  }
+
+  private solanaCapabilities() {
+    const plan = buildDepositPlan({ missionId: 'capabilities', budgetUsdc: 0 })
+    return {
+      solanaCluster: SOLANA_CLUSTER,
+      solanaRpcUrl: plan.rpcUrl || SOLANA_RPC_URL,
+      solanaExplorer: SOLANA_EXPLORER,
+      solanaUsdcMint: SOLANA_USDC_MINT,
+      solanaUsdcDecimals: SOLANA_USDC_DECIMALS,
+      solanaTokenProgram: SPL_TOKEN_PROGRAM_ID,
+      solanaProgramId: plan.programId,
+      solanaPayee: plan.payee,
+      solanaTimeoutSeconds: plan.timeoutSeconds,
+    }
+  }
+
+  private solanaDeposit(missionId: string, budgetUsdc = 0): SolanaDepositPlan {
+    return buildDepositPlan({ missionId, budgetUsdc })
+  }
+
+  private solanaClose(mission: ProductMission): SolanaClosePlan {
+    return buildClosePlan({
+      missionId: mission.id,
+      budgetUsdc: mission.budgetUsdc,
+      meteredBytes: BigInt(mission.meteredBytes || '0'),
+      pricePerMbUsdc: mission.destination.pricePerMbUsdc,
+      traveler: mission.travelerAddress,
+    })
   }
 
   async createMission(payload: {
@@ -155,6 +201,11 @@ export class MissionProductService {
       throw unavailable('payments are simulated; configure a live payment rail for live mode')
     }
 
+    const solana = this.solanaDeposit(mission.id, mission.budgetUsdc)
+    if (this.isLiveMode() && !solana.deployed) {
+      throw unavailable('Falta SOLANA_PROGRAM_ID y SOLANA_PAYEE_ADDRESS para depositar USDC en Solana devnet')
+    }
+
     const intent = await this.rail.createDepositIntent({
       missionId: mission.id,
       amountUsdc: mission.budgetUsdc,
@@ -162,22 +213,26 @@ export class MissionProductService {
     })
 
     mission.paymentIntentId = intent.intentId
+    mission.escrowId = solana.escrowId
+    mission.depositAtomic = solana.amount
     await this.repo.save(mission)
 
     return {
       intentId: intent.intentId,
       amount: String(intent.amountUsdc),
       asset: intent.asset,
-      payTo: intent.payTo,
+      payTo: solana.programId ?? intent.payTo,
       paymentUri: intent.paymentUri,
       qr: intent.qr,
-      network: this.rail.network,
+      network: 'solana:devnet',
       status: 'pending',
       isMock: intent.isMock,
+      rail: 'solana' as const,
+      solana,
     }
   }
 
-  async confirmPayment(missionId: string, intentId: string, txHash: string) {
+  async confirmPayment(missionId: string, intentId: string, txHash: string, traveler?: string) {
     const mission = await this.load(missionId)
 
     if (mission.paymentStatus === 'paid' && mission.depositTxHash) {
@@ -204,15 +259,19 @@ export class MissionProductService {
     mission.paymentStatus = 'paid'
     mission.status = 'paid'
     mission.depositTxHash = result.txHash
-    mission.depositExplorerUrl = result.explorerUrl
     mission.channelId = result.channelId
+    mission.escrowId = mission.escrowId ?? escrowIdBase58(mission.id)
+    mission.depositAtomic = mission.depositAtomic ?? this.solanaDeposit(mission.id, mission.budgetUsdc).amount
+    if (traveler && isSolanaAddress(traveler)) mission.travelerAddress = traveler
+    const explorerUrl = solanaTxUrl(txHash) ?? result.explorerUrl
+    if (explorerUrl) mission.depositExplorerUrl = explorerUrl
     await this.repo.save(mission)
 
     return {
       valid: true,
       status: 'paid',
       depositTxHash: result.txHash,
-      explorerUrl: result.explorerUrl,
+      explorerUrl,
       channelId: result.channelId,
     }
   }
@@ -347,6 +406,11 @@ export class MissionProductService {
       throw unavailable('payments are simulated; configure a live payment rail for live mode')
     }
 
+    const solana = buildTopUpPlan({ missionId, amountUsdc })
+    if (this.isLiveMode() && !solana.deployed) {
+      throw unavailable('Falta SOLANA_PROGRAM_ID y SOLANA_PAYEE_ADDRESS para recargar USDC en Solana devnet')
+    }
+
     const intent = await this.rail.createDepositIntent({
       missionId,
       amountUsdc,
@@ -367,12 +431,14 @@ export class MissionProductService {
       intentId: intent.intentId,
       amount: String(intent.amountUsdc),
       asset: intent.asset,
-      payTo: intent.payTo,
+      payTo: solana.programId ?? intent.payTo,
       paymentUri: intent.paymentUri,
       qr: intent.qr,
-      network: this.rail.network,
+      network: 'solana:devnet',
       status: 'pending',
       isMock: intent.isMock,
+      rail: 'solana' as const,
+      solana,
     }
   }
 
@@ -408,7 +474,7 @@ export class MissionProductService {
 
     topup.status = 'settled'
     topup.txHash = result.txHash
-    topup.explorerUrl = result.explorerUrl
+    topup.explorerUrl = solanaTxUrl(txHash) ?? result.explorerUrl
     mission.balanceUsdc += topup.amountUsdc
     mission.budgetUsdc += topup.amountUsdc
     if (mission.status === 'paused' && mission.balanceUsdc > 0) {
@@ -426,46 +492,130 @@ export class MissionProductService {
     }
   }
 
-  async finishMission(missionId: string) {
+  async cancelMission(missionId: string) {
     const mission = await this.load(missionId)
-    if (!mission.channelId) throw new Error('This mission has no payment channel to close')
-    if (this.isLiveMode() && !this.rail.isLive) {
-      throw unavailable('payments are simulated; configure a live payment rail for live mode')
+    if (mission.status === 'cancelled') {
+      return {
+        status: 'cancelled' as const,
+        txHash: mission.closeTxHash,
+        explorerUrl: mission.closeExplorerUrl,
+        refundedUsdc: mission.refundedUsdc,
+      }
+    }
+    if (mission.paymentStatus !== 'paid' || !mission.channelId) {
+      throw new Error('Only a paid trip can be cancelled and refunded')
+    }
+    if (mission.status !== 'paid' || mission.iccid || BigInt(mission.meteredBytes || '0') > 0n) {
+      throw new Error('This trip already started; finish it instead so what you used is settled')
+    }
+    if (this.solanaDeposit(mission.id, mission.budgetUsdc).deployed) {
+      throw unavailable('The deposit is in the Solana escrow. Refund it from Phantom or Solflare.')
     }
 
     const outcome = await this.rail.closeChannel(mission.channelId)
-    if (outcome.kind === 'failed' || outcome.kind === 'blocked') {
-      throw new Error(`Could not close the payment channel: ${outcome.detail}`)
+    const alreadyClosed = outcome.kind === 'failed' && outcome.detail.includes('already closed')
+    if (outcome.kind === 'failed' && !alreadyClosed) {
+      throw new Error(`Could not refund the deposit: ${outcome.detail}`)
+    }
+    if (outcome.kind === 'blocked') {
+      throw new Error(`Could not refund the deposit: ${outcome.detail}`)
+    }
+
+    mission.status = 'cancelled'
+    mission.esimStatus = 'disabled'
+    mission.settledUsdc = 0
+    mission.refundedUsdc = mission.budgetUsdc
+    mission.balanceUsdc = 0
+    await this.repo.save(mission)
+    return {
+      status: 'cancelled' as const,
+      refundedUsdc: mission.refundedUsdc,
+    }
+  }
+
+  async finishMission(missionId: string) {
+    const mission = await this.load(missionId)
+    if (mission.paymentStatus !== 'paid') {
+      throw new Error('This mission has no confirmed deposit to close')
+    }
+
+    if (mission.status === 'completed' && mission.closeTxHash) {
+      return {
+        status: 'completed' as const,
+        txHash: mission.closeTxHash,
+        explorerUrl: mission.closeExplorerUrl ?? solanaTxUrl(mission.closeTxHash),
+        settlement: mission.settlement ?? 'close',
+        settledUsdc: mission.settledUsdc,
+        refundedUsdc: mission.refundedUsdc,
+        solana: this.solanaClose(mission),
+      }
+    }
+
+    const solana = this.solanaClose(mission)
+    if (this.isLiveMode() && !solana.deployed) {
+      throw unavailable('Falta SOLANA_PROGRAM_ID y SOLANA_PAYEE_ADDRESS para cerrar el depósito en Solana devnet')
+    }
+
+    // The cumulative voucher is quoted here. The traveler's wallet signs it
+    // and sends the single close. Usage stays off-chain until that transaction.
+    return {
+      status: 'awaiting_close' as const,
+      refundAmountUsdc: Number(solana.refundUsdc),
+      solana,
+    }
+  }
+
+  async confirmClose(missionId: string, txHash: string, settlement: 'close' | 'timeout_refund' = 'close') {
+    const mission = await this.load(missionId)
+
+    if (mission.status === 'completed' && mission.closeTxHash) {
+      return {
+        txHash: mission.closeTxHash,
+        status: 'completed' as const,
+        explorerUrl: mission.closeExplorerUrl ?? solanaTxUrl(mission.closeTxHash),
+        settlement: mission.settlement ?? settlement,
+        settledUsdc: mission.settledUsdc,
+        refundedUsdc: mission.refundedUsdc,
+      }
+    }
+
+    if (!isSolanaSignature(txHash)) {
+      throw new Error('El cierre necesita la firma de la transacción en Solana (base58, 64 bytes)')
     }
 
     if (mission.iccid) {
       try {
         await this.connectivity.refundUnused(mission.iccid)
       } catch {
-        // The eSIM wallet is reconciled by the session closer.
+        // The eSIM wallet is demo-only unless Citrus is configured. The USDC
+        // refund already happened in the escrow transaction.
       }
     }
 
+    const quote = this.solanaClose(mission)
+    const explorerUrl = solanaTxUrl(txHash)
     mission.status = 'completed'
     mission.esimStatus = 'disabled'
-    if (outcome.kind === 'nothing_to_close') {
+    mission.closeTxHash = txHash
+    mission.settlement = settlement
+    if (explorerUrl) mission.closeExplorerUrl = explorerUrl
+    if (settlement === 'timeout_refund') {
       mission.settledUsdc = 0
-      mission.refundedUsdc = mission.budgetUsdc
+      mission.refundedUsdc = Number(quote.amountUsdc)
     } else {
-      mission.closeTxHash = outcome.txHash
-      mission.closeExplorerUrl = outcome.explorerUrl
-      mission.settledUsdc = rawToUsdc(outcome.settledRaw)
-      if (outcome.kind === 'closed') mission.refundedUsdc = rawToUsdc(outcome.refundedRaw)
+      mission.settledUsdc = Number(quote.usedUsdc)
+      mission.refundedUsdc = Number(quote.refundUsdc)
     }
     await this.repo.save(mission)
 
     return {
-      status: 'completed',
-      closeKind: outcome.kind,
-      txHash: mission.closeTxHash,
-      explorerUrl: mission.closeExplorerUrl,
+      txHash,
+      status: 'completed' as const,
+      explorerUrl,
+      settlement,
       settledUsdc: mission.settledUsdc,
       refundedUsdc: mission.refundedUsdc,
+      solana: quote,
     }
   }
 

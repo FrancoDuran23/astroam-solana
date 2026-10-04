@@ -3,6 +3,7 @@ import type { MissionProductService } from '../services/MissionProductService.ts
 import {
   createMissionSchema,
   paymentConfirmationSchema,
+  closeConfirmationSchema,
   topupIntentSchema,
   topupConfirmationSchema,
   demoTrafficSchema,
@@ -98,7 +99,7 @@ export function createProductRouter(service: MissionProductService): Router {
   router.post('/missions/:id/payment-confirmation', requireAuthIfNeeded, async (req: Request, res: Response) => {
     try {
       const parsed = paymentConfirmationSchema.parse(req.body)
-      const result = await service.confirmPayment(getId(req), parsed.intentId, parsed.txHash)
+      const result = await service.confirmPayment(getId(req), parsed.intentId, parsed.txHash, parsed.traveler)
       res.json(result)
     } catch (err) {
       const is503 = err instanceof Error && err.message.includes('503:')
@@ -182,7 +183,17 @@ export function createProductRouter(service: MissionProductService): Router {
     }
   })
 
-  // 11. Finish Mission
+  router.post('/missions/:id/cancel', requireAuthIfNeeded, async (req: Request, res: Response) => {
+    try {
+      const result = await service.cancelMission(getId(req))
+      res.json(result)
+    } catch (err) {
+      const is503 = err instanceof Error && err.message.includes('503:')
+      res.status(is503 ? 503 : 400).json({ error: 'cancel_failed', message: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  // 11. Finish Mission — quotes the cumulative voucher. The wallet sends the close.
   router.post('/missions/:id/finish', requireAuthIfNeeded, async (req: Request, res: Response) => {
     try {
       const result = await service.finishMission(getId(req))
@@ -190,6 +201,17 @@ export function createProductRouter(service: MissionProductService): Router {
     } catch (err) {
       const is503 = err instanceof Error && err.message.includes('503:')
       res.status(is503 ? 503 : 400).json({ error: 'finish_failed', message: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  router.post('/missions/:id/close', requireAuthIfNeeded, async (req: Request, res: Response) => {
+    try {
+      const parsed = closeConfirmationSchema.parse(req.body)
+      const result = await service.confirmClose(getId(req), parsed.txHash, parsed.settlement)
+      res.json(result)
+    } catch (err) {
+      const is503 = err instanceof Error && err.message.includes('503:')
+      res.status(is503 ? 503 : 400).json({ error: 'close_failed', message: err instanceof Error ? err.message : String(err) })
     }
   })
 

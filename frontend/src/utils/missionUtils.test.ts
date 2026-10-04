@@ -1,14 +1,14 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { estimateMb, fmtMb, DESTINATIONS } from './missionUtils.js'
+import { estimateMb, fmtMb, DESTINATIONS } from './missionUtils.ts'
 
 describe('missionUtils tariff & estimation', () => {
-  it('estimates Brasil 10 USDC as exactly 4000 MB = 4.0 GB', () => {
-    const brasil = DESTINATIONS.find((d) => d.id === 'brasil')
-    assert.ok(brasil)
-    assert.equal(brasil.pricePerMbUsdc, 0.0025)
+  it('estimates Brazil 10 USDC as exactly 4000 MB = 4.0 GB', () => {
+    const brazil = DESTINATIONS.find((d) => d.id === 'brazil')
+    assert.ok(brazil)
+    assert.equal(brazil.pricePerMbUsdc, 0.0025)
 
-    const mb = estimateMb(10, brasil.pricePerMbUsdc)
+    const mb = estimateMb(10, brazil.pricePerMbUsdc)
     assert.equal(mb, 4000)
 
     const formatted = fmtMb(mb)
