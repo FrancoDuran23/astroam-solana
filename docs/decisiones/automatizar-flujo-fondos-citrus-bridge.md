@@ -5,6 +5,12 @@ fondeo por tramos, el cobro y el cierre automáticos están implementados y con
 tests; el programa actualizado todavía no se desplegó en devnet. Bridge, la
 tarjeta de Citrus y la prueba con una eSIM real siguen pendientes (§6).
 
+> **Actualización 5/10/2026.** La auto-recarga de Citrus no funciona como se
+> supone más abajo: solo la dispara un gasto real (crear una eSIM), no el
+> fondeo de una eSIM. Lo que dice su documentación, la arquitectura que
+> resulta y las opciones están en
+> [`arquitectura-flujo-de-fondos.md`](arquitectura-flujo-de-fondos.md).
+
 Esta decisión **reemplaza y extiende** la propuesta de la rama
 `docs/automatizar-flujo-de-fondos`
 (`docs/decisiones/automatizar-flujo-de-fondos.md`). Aquella dejó abierto el
