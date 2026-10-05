@@ -56,6 +56,12 @@ export type Mission = {
   network: Network
   channelId: string        // payment channel opened by the deposit
   escrowId?: string
+  /** Session key the deposit registered in the escrow (base58). */
+  sessionKey?: string
+  /** Highest voucher AstroAm holds for this trip. */
+  voucher?: SignedVoucher
+  /** Already collected from the escrow by AstroAm, 6-decimal USDC atomic units. */
+  claimedAtomic?: string
   iccid?: string
   esim?: PublicEsimInfo
   isMock?: boolean
@@ -107,6 +113,30 @@ export type SolanaDepositPlan = {
   amountUsdc: string
   timeoutSeconds: number
   deployed: boolean
+  /** The deployed program takes a session key at deposit, so the app signs vouchers without the wallet. */
+  sessionKeys?: boolean
+}
+
+/** A cumulative voucher: the total the traveler authorizes AstroAm to collect from the escrow. */
+export type SignedVoucher = {
+  /** 6-decimal USDC atomic units. */
+  cumulativeAtomic: string
+  /** base64 of the ed25519 signature. */
+  signature: string
+  /** base58 key that signed: the session key or the wallet. */
+  signer: string
+}
+
+/** What the app has to sign next, and what AstroAm already holds. */
+export type VoucherRequest = {
+  escrowId: string
+  programId: string | null
+  depositAtomic: string
+  cumulativeAtomic: string
+  messageBase64: string | null
+  signedAtomic: string
+  claimedAtomic: string
+  sessionKey: string | null
 }
 
 export type SolanaClosePlan = SolanaDepositPlan & {
@@ -168,8 +198,11 @@ export type BackendCapabilities = {
   network: string
   paymentRail: string
   paymentsLive: boolean
-  /** "traveler": the app signs usage vouchers with its session key. */
-  voucherSigning?: 'rail' | 'traveler'
+  /** The deployed escrow takes a session key: the app signs usage vouchers without the wallet. */
+  escrowSessionKeys?: boolean
+  /** The backend sends claims and the close itself, with the session vouchers. */
+  escrowAutomation?: boolean
+  escrowOperator?: string | null
   channelReady: boolean
   citrusReady: boolean
   connectivityProvider: 'fake' | 'citrus'

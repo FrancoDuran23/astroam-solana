@@ -53,6 +53,12 @@ export type SolanaDepositPlan = {
   amountUsdc: string;
   timeoutSeconds: number;
   deployed: boolean;
+  /**
+   * The deployed program accepts a session key at deposit and partial claims
+   * (`SOLANA_ESCROW_SESSION_KEYS=true`). The first deployed program rejects
+   * the longer deposit, so this stays false until it is upgraded.
+   */
+  sessionKeys: boolean;
 };
 
 export type SolanaClosePlan = SolanaDepositPlan & {
@@ -102,6 +108,7 @@ export function buildDepositPlan(params: {
     amountUsdc: formatAtomic(amount),
     timeoutSeconds: timeoutFromEnv(env),
     deployed: programId !== null && payee !== null,
+    sessionKeys: programId !== null && payee !== null && env.SOLANA_ESCROW_SESSION_KEYS?.trim() === "true",
   };
 }
 

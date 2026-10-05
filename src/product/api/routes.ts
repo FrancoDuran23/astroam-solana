@@ -7,6 +7,8 @@ import {
   topupIntentSchema,
   topupConfirmationSchema,
   demoTrafficSchema,
+  voucherSchema,
+  settleSchema,
 } from '../schemas/mission.ts'
 
 function getId(req: Request): string {
@@ -99,7 +101,7 @@ export function createProductRouter(service: MissionProductService): Router {
   router.post('/missions/:id/payment-confirmation', requireAuthIfNeeded, async (req: Request, res: Response) => {
     try {
       const parsed = paymentConfirmationSchema.parse(req.body)
-      const result = await service.confirmPayment(getId(req), parsed.intentId, parsed.txHash, parsed.traveler)
+      const result = await service.confirmPayment(getId(req), parsed.intentId, parsed.txHash, parsed.traveler, parsed.sessionKey)
       res.json(result)
     } catch (err) {
       const is503 = err instanceof Error && err.message.includes('503:')
@@ -212,6 +214,35 @@ export function createProductRouter(service: MissionProductService): Router {
     } catch (err) {
       const is503 = err instanceof Error && err.message.includes('503:')
       res.status(is503 ? 503 : 400).json({ error: 'close_failed', message: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  // Vouchers: what the app signs next, and the app handing one over.
+  router.get('/missions/:id/voucher-request', async (req: Request, res: Response) => {
+    try {
+      res.json(await service.voucherRequest(getId(req)))
+    } catch (err) {
+      res.status(404).json({ error: 'not_found', message: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  router.post('/missions/:id/vouchers', requireAuthIfNeeded, async (req: Request, res: Response) => {
+    try {
+      const parsed = voucherSchema.parse(req.body)
+      res.json(await service.submitVoucher(getId(req), parsed))
+    } catch (err) {
+      res.status(400).json({ error: 'voucher_rejected', message: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  // Settle: the backend sends the close with the session-key voucher. No wallet popup.
+  router.post('/missions/:id/settle', requireAuthIfNeeded, async (req: Request, res: Response) => {
+    try {
+      const parsed = settleSchema.parse(req.body)
+      res.json(await service.settleMission(getId(req), parsed.voucher))
+    } catch (err) {
+      const is503 = err instanceof Error && err.message.includes('503:')
+      res.status(is503 ? 503 : 400).json({ error: 'settle_failed', message: err instanceof Error ? err.message : String(err) })
     }
   })
 

@@ -136,6 +136,7 @@ export default function ActiveMissionPage() {
                 <p className="text-sm text-textsecondary leading-relaxed">
                   Your eSIM is turned off, the final usage is settled in one transaction and the rest of your deposit goes back to your
                   wallet.{simulated && ' (Simulated.)'}
+                  {travelerSigns && caps?.escrowAutomation && ' Nothing to approve in your wallet.'}
                 </p>
                 <div className="flex gap-3 pt-2">
                   <button
@@ -347,7 +348,7 @@ export default function ActiveMissionPage() {
       {!isCompleted && !isClosing && (
         <p className="mb-6 text-center font-mono text-[11px] text-textsecondary">
           “Use {DEMO_TRAFFIC_MB} MB” simulates a reading from the carrier.
-          {travelerSigns && ' The app signs a voucher for it first, with no wallet popup.'}
+          {travelerSigns && ' The app then signs a voucher for the new total, with no wallet popup.'}
         </p>
       )}
 

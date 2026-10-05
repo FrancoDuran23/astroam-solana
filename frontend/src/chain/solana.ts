@@ -1,9 +1,10 @@
 // Solana wallet flow for the devnet escrow.
 //
 // Phantom or Solflare (window.phantom.solana / window.solflare). The traveler
-// deposits Circle devnet USDC once. Usage stays off-chain. One close, signed
-// by that same wallet, pays AstroAm the used amount and refunds the rest.
-// A timeout refund returns the full deposit if AstroAm never closes.
+// deposits Circle devnet USDC once. Usage stays off-chain. One close pays
+// AstroAm the used amount and refunds the rest; its voucher is signed by the
+// wallet, or by the session key the deposit registered (./session.ts), which
+// needs no popup. A timeout refund returns what AstroAm did not collect.
 
 import { Buffer } from 'buffer'
 import {
@@ -21,6 +22,21 @@ import {
   getAssociatedTokenAddress,
 } from '@solana/spl-token'
 import type { SolanaClosePlan, SolanaDepositPlan } from '../types/mission'
+
+/** Same bytes as `VOUCHER_PREFIX` in programs/astroam-escrow/src/lib.rs. */
+const VOUCHER_PREFIX = 'AstroAmEscrow:v1:close'
+
+/** The bytes a voucher signs: prefix, program id, escrow id and the cumulative amount. */
+export function voucherMessage(programId: string, escrowId: string, cumulativeAtomic: bigint): Uint8Array {
+  return Uint8Array.from(
+    Buffer.concat([
+      Buffer.from(VOUCHER_PREFIX, 'utf8'),
+      new PublicKey(programId).toBuffer(),
+      new PublicKey(escrowId).toBuffer(),
+      u64(cumulativeAtomic),
+    ]),
+  )
+}
 
 const TAG_DEPOSIT = 1
 const TAG_TOP_UP = 2
@@ -155,9 +171,19 @@ export async function sendDeposit(
 
   onProgress?.('depositing')
   const { config, escrow, vault } = pdas(programId, plan.escrowId)
+  // The deposit registers the trip's session key, so later vouchers need no wallet popup.
+  let sessionKey: Buffer = Buffer.alloc(0)
+  if (method === 'deposit' && plan.sessionKeys) {
+    try {
+      const { createSessionKey } = await import('./session')
+      sessionKey = new PublicKey(await createSessionKey(missionId)).toBuffer()
+    } catch {
+      // No Ed25519 in this browser's WebCrypto: deposit without a session key; the wallet signs the close.
+    }
+  }
   const data =
     method === 'deposit'
-      ? Buffer.concat([Buffer.from([TAG_DEPOSIT]), escrowSeeds(plan.escrowId), u64(needed)])
+      ? Buffer.concat([Buffer.from([TAG_DEPOSIT]), escrowSeeds(plan.escrowId), u64(needed), sessionKey])
       : Buffer.concat([Buffer.from([TAG_TOP_UP]), u64(needed)])
   const keys =
     method === 'deposit'
@@ -208,7 +234,11 @@ function signatureBytes(signed: { signature: Uint8Array } | Uint8Array): Uint8Ar
   return raw
 }
 
-export async function closeEscrow(plan: SolanaClosePlan): Promise<string> {
+/**
+ * Sends the close from the wallet. With `voucher` (signed by the session key)
+ * the wallet only approves the transaction; without it, it signs the voucher too.
+ */
+export async function closeEscrow(plan: SolanaClosePlan, voucher?: { signature: Uint8Array; signer: string }): Promise<string> {
   const { programId, payee } = requireDeployed(plan)
   if (!plan.messageBase64) {
     throw new Error('The escrow is not deployed, so there is no voucher to sign.')
@@ -218,7 +248,8 @@ export async function closeEscrow(plan: SolanaClosePlan): Promise<string> {
   const traveler = wallet.publicKey
   if (!traveler) throw new Error('The wallet did not return an account.')
   const message = Uint8Array.from(Buffer.from(plan.messageBase64, 'base64'))
-  const signature = signatureBytes(await wallet.signMessage(message, 'utf8'))
+  const signature = voucher ? voucher.signature : signatureBytes(await wallet.signMessage(message, 'utf8'))
+  const voucherSigner = voucher ? new PublicKey(voucher.signer) : traveler
   const mint = new PublicKey(plan.usdcMint)
   const travelerAta = await getAssociatedTokenAddress(mint, traveler)
   const payeeAta = await getAssociatedTokenAddress(mint, payee)
@@ -226,7 +257,7 @@ export async function closeEscrow(plan: SolanaClosePlan): Promise<string> {
   const tx = new Transaction().add(
     createAssociatedTokenAccountIdempotentInstruction(traveler, payeeAta, payee, mint),
     Ed25519Program.createInstructionWithPublicKey({
-      publicKey: traveler.toBytes(),
+      publicKey: voucherSigner.toBytes(),
       message,
       signature,
     }),

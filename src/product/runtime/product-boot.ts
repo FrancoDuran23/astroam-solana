@@ -5,10 +5,13 @@ import { createPaymentRail } from '../../rails/createPaymentRail.ts'
 import type { PaymentRail } from '../../rails/PaymentRail.ts'
 import { FileMissionRepository } from '../persistence/MissionRepository.ts'
 import { MissionProductService } from '../services/MissionProductService.ts'
+import { fundFlowConfigFromEnv } from '../services/fund-flow.ts'
+import type { EscrowChain } from '../../solana/EscrowChain.ts'
 
 export function bootProductService(
   env: Record<string, string | undefined> = process.env,
   rail: PaymentRail = createPaymentRail(env),
+  escrowChain?: EscrowChain,
 ): MissionProductService {
   const repo = new FileMissionRepository(env.DATA_DIR)
 
@@ -31,5 +34,12 @@ export function bootProductService(
     }
   }
 
-  return new MissionProductService({ repo, connectivity, rail, hasCitrusReal })
+  return new MissionProductService({
+    repo,
+    connectivity,
+    rail,
+    hasCitrusReal,
+    escrowChain,
+    fundFlow: fundFlowConfigFromEnv(env),
+  })
 }

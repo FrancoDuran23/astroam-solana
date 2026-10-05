@@ -339,6 +339,7 @@ checksum = "9b34d609dfbaf33d6889b2b7106d3ca345eacad44200913df5ba02bfd31d2ba9"
 name = "astroam-escrow"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
  "solana-program",
  "solana-program-test",
  "solana-sdk",

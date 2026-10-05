@@ -2,6 +2,10 @@
 // devnet USDC mint. Prints the program id the deploy command returns. If there
 // is no key or no SOL, it prints the exact commands a human must run and
 // exits. It never invents a program address.
+//
+// `--upgrade` replaces the code of the program already at SOLANA_PROGRAM_ID
+// and keeps its address and config. The key must be that program's upgrade
+// authority. Escrows opened by the previous code still close and refund.
 import "dotenv/config";
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -23,6 +27,7 @@ import {
 } from "../src/shared/solana/constants.ts";
 
 const SO_PATH = join("programs", "astroam-escrow", "target", "deploy", "astroam_escrow.so");
+const UPGRADE = process.argv.includes("--upgrade");
 
 function humanSteps(): string {
   return [
@@ -49,6 +54,10 @@ function humanSteps(): string {
     "       npm run solana:deploy",
     "  7. Copy the printed SOLANA_PROGRAM_ID and SOLANA_PAYEE_ADDRESS into .env",
     "     and restart the API. Do not paste an address this script did not print.",
+    "",
+    "To replace the code of the program already deployed (same address), run",
+    "  npm run solana:upgrade",
+    "with the key that deployed it and SOLANA_PROGRAM_ID set in .env.",
     "",
     `USDC mint (Circle devnet, 6 decimals, SPL Token): ${SOLANA_USDC_MINT}`,
     `RPC: ${SOLANA_RPC_URL}`,
@@ -115,7 +124,21 @@ if (!existsSync(SO_PATH)) {
   console.error(`Build did not produce ${SO_PATH}.`);
   process.exit(1);
 }
-const deployed = run("solana", ["program", "deploy", SO_PATH, "--url", rpc, "--keypair", keyPath]);
+const upgradeTarget = process.env.SOLANA_PROGRAM_ID?.trim();
+if (UPGRADE && !upgradeTarget) {
+  console.error("--upgrade needs SOLANA_PROGRAM_ID: the address of the program to replace.");
+  process.exit(1);
+}
+const deployed = run("solana", [
+  "program",
+  "deploy",
+  SO_PATH,
+  "--url",
+  rpc,
+  "--keypair",
+  keyPath,
+  ...(UPGRADE ? ["--program-id", upgradeTarget!] : []),
+]);
 
 // `solana program deploy` writes a program keypair next to the .so when
 // --program-id is omitted. Prefer the id it prints over any local guess.
@@ -133,6 +156,24 @@ data[0] = 0;
 data.writeBigInt64LE(BigInt(timeout), 1);
 data.set(payee.toBytes(), 9);
 const mint = new PublicKey(SOLANA_USDC_MINT);
+
+function printEnv(): void {
+  console.log(`SOLANA_PROGRAM_ID=${programId.toBase58()}`);
+  console.log(`SOLANA_PAYEE_ADDRESS=${payee.toBase58()}`);
+  console.log("SOLANA_ESCROW_SESSION_KEYS=true");
+  console.log(`SOLANA_OPERATOR_KEYPAIR=${keyPath}`);
+}
+
+// An upgrade keeps the config account: the payee, mint and timeout it was initialized with.
+if ((await connection.getAccountInfo(config)) !== null) {
+  console.log("");
+  console.log(`Program ${programId.toBase58()} is already initialized; its config was kept.`);
+  printEnv();
+  console.log("Add the last two lines to .env and restart the API: the app registers a session key at deposit,");
+  console.log("and with the operator key the backend claims and closes by itself.");
+  process.exit(0);
+}
+
 const tx = new Transaction().add(
   new TransactionInstruction({
     programId,
@@ -148,6 +189,6 @@ const tx = new Transaction().add(
 const signature = await sendAndConfirmTransaction(connection, tx, [deployer]);
 console.log("");
 console.log(`Initialize tx: https://explorer.solana.com/tx/${signature}?cluster=devnet`);
-console.log(`SOLANA_PROGRAM_ID=${programId.toBase58()}`);
-console.log(`SOLANA_PAYEE_ADDRESS=${payee.toBase58()}`);
-console.log("Add those two lines to .env and restart the API. This is the id from solana program deploy, not a placeholder.");
+printEnv();
+console.log("Add those lines to .env and restart the API. This is the id from solana program deploy, not a placeholder.");
+console.log("SOLANA_OPERATOR_KEYPAIR lets the backend claim and close by itself; leave it out to keep the wallet sending the close.");

@@ -1,6 +1,6 @@
 import type { ConnectivityProvider } from '../../providers/connectivity/ConnectivityProvider.ts'
 import type { MissionRepository } from '../persistence/MissionRepository.ts'
-import type { Capabilities, DestinationInfo, ProductMission, PublicEsimInfo } from '../types/mission.ts'
+import type { Capabilities, ClaimRecord, DestinationInfo, ProductMission, PublicEsimInfo } from '../types/mission.ts'
 import { IntegratedMeterService } from '../../meter/meter-service.ts'
 import type { ChannelBalancePort } from '../../services/PolicyEnforcer.ts'
 import { createConnectivitySession, type ConnectivitySession } from '../../models/ConnectivitySession.ts'
@@ -25,6 +25,23 @@ import {
   type SolanaClosePlan,
   type SolanaDepositPlan,
 } from '../../shared/solana/voucher.ts'
+import { formatAtomic } from '../../shared/solana/amounts.ts'
+import { verifyVoucher, type EscrowState, type SignedVoucher } from '../../shared/solana/escrow.ts'
+import { createChannelMutex } from '../../shared/mutex.ts'
+import { equivalentBytes } from '../../shared/usage-math.ts'
+import type { EscrowChain } from '../../solana/EscrowChain.ts'
+import {
+  DEFAULT_FUND_FLOW,
+  autoCloseReason,
+  claimIsDue,
+  nextFundCents,
+  type AutoCloseReason,
+  type FundFlowConfig,
+} from './fund-flow.ts'
+
+const MICRO_USD_PER_CENT = 10_000n
+/** Provider rounding on a fund, in cents (the same margin FundingService uses). */
+const FUND_TOLERANCE_CENTS = 6
 
 /** USDC (number) to raw units (1e-7 USDC). */
 function usdcToRaw(usdc: number): bigint {
@@ -49,6 +66,23 @@ export type MissionProductServiceOptions = {
   /** How missions are paid: a real chain, or FakeRail for demos. */
   rail: PaymentRail
   hasCitrusReal?: boolean
+  /** With it the backend reads deposits from the escrow and sends claims and closes itself. */
+  escrowChain?: EscrowChain
+  fundFlow?: FundFlowConfig
+  /** How long to wait between reads while a deposit reaches the RPC node, ms. */
+  depositReadRetryMs?: number
+  logger?: (line: Record<string, unknown>) => void
+}
+
+/** What one pass of the fund flow did for a trip. */
+export type AdvanceResult = {
+  missionId: string
+  fundedCents: number
+  claimTxHash?: string
+  closeTxHash?: string
+  closeReason?: AutoCloseReason
+  /** Set when a step failed; the next pass retries. */
+  error?: string
 }
 
 export class MissionProductService {
@@ -56,6 +90,12 @@ export class MissionProductService {
   private connectivity: ConnectivityProvider
   private rail: PaymentRail
   private hasCitrusReal: boolean
+  private chain: EscrowChain | undefined
+  private fundFlow: FundFlowConfig
+  private depositReadRetryMs: number
+  private logger: (line: Record<string, unknown>) => void
+  // One writer per trip: a request and the fund-flow job never save over each other.
+  private locks = createChannelMutex()
 
   // Active sessions & meter services per mission
   private sessions = new Map<string, ConnectivitySession>()
@@ -66,6 +106,10 @@ export class MissionProductService {
     this.connectivity = options.connectivity
     this.rail = options.rail
     this.hasCitrusReal = options.hasCitrusReal ?? false
+    this.chain = options.escrowChain
+    this.fundFlow = options.fundFlow ?? DEFAULT_FUND_FLOW
+    this.depositReadRetryMs = options.depositReadRetryMs ?? 600
+    this.logger = options.logger ?? ((line) => process.stdout.write(`${JSON.stringify(line)}\n`))
   }
 
   private isLiveMode(): boolean {
@@ -134,7 +178,28 @@ export class MissionProductService {
       solanaProgramId: plan.programId,
       solanaPayee: plan.payee,
       solanaTimeoutSeconds: plan.timeoutSeconds,
+      escrowSessionKeys: plan.sessionKeys,
+      escrowAutomation: plan.sessionKeys && this.chain !== undefined,
+      escrowOperator: this.chain?.operator ?? null,
     }
+  }
+
+  /**
+   * Reads the deposit from the escrow account. The transaction can reach the
+   * RPC node a moment after the wallet reports it, so it retries a few times.
+   */
+  private async readDeposit(escrowId: string, expectedAtomic: bigint): Promise<EscrowState> {
+    let state: EscrowState | null = null
+    for (let attempt = 0; attempt < 6 && state === null; attempt++) {
+      if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, this.depositReadRetryMs))
+      state = await this.chain!.readEscrow(escrowId)
+    }
+    if (state === null) throw new Error('The deposit is not in the escrow yet. Wait for the transaction to confirm and try again.')
+    if (state.settled) throw new Error('This escrow was already closed')
+    if (state.deposit < expectedAtomic) {
+      throw new Error(`The escrow holds ${formatAtomic(state.deposit)} USDC; this trip needs ${formatAtomic(expectedAtomic)}`)
+    }
+    return state
   }
 
   private solanaDeposit(missionId: string, budgetUsdc = 0): SolanaDepositPlan {
@@ -232,7 +297,7 @@ export class MissionProductService {
     }
   }
 
-  async confirmPayment(missionId: string, intentId: string, txHash: string, traveler?: string) {
+  async confirmPayment(missionId: string, intentId: string, txHash: string, traveler?: string, sessionKey?: string) {
     const mission = await this.load(missionId)
 
     if (mission.paymentStatus === 'paid' && mission.depositTxHash) {
@@ -249,6 +314,11 @@ export class MissionProductService {
       throw unavailable('payments are simulated; configure a live payment rail for live mode')
     }
 
+    // With an operator key the deposit is read from the escrow account, not
+    // taken from the request. Read first: the rail consumes the intent.
+    const plan = this.solanaDeposit(mission.id, mission.budgetUsdc)
+    const onChain = this.chain && plan.deployed ? await this.readDeposit(plan.escrowId, BigInt(plan.amount)) : null
+
     const result = await this.rail.confirmDeposit({ missionId, intentId, txHash, purpose: 'mission' })
     if (!result.valid) {
       mission.paymentStatus = 'failed'
@@ -262,7 +332,15 @@ export class MissionProductService {
     mission.channelId = result.channelId
     mission.escrowId = mission.escrowId ?? escrowIdBase58(mission.id)
     mission.depositAtomic = mission.depositAtomic ?? this.solanaDeposit(mission.id, mission.budgetUsdc).amount
-    if (traveler && isSolanaAddress(traveler)) mission.travelerAddress = traveler
+    if (onChain) {
+      mission.travelerAddress = onChain.traveler
+      if (onChain.sessionKey) mission.sessionKey = onChain.sessionKey
+      mission.depositVerified = true
+      mission.escrowActiveAt = new Date(onChain.activeAt * 1000).toISOString()
+    } else {
+      if (traveler && isSolanaAddress(traveler)) mission.travelerAddress = traveler
+      if (plan.sessionKeys && sessionKey && isSolanaAddress(sessionKey)) mission.sessionKey = sessionKey
+    }
     const explorerUrl = solanaTxUrl(txHash) ?? result.explorerUrl
     if (explorerUrl) mission.depositExplorerUrl = explorerUrl
     await this.repo.save(mission)
@@ -273,6 +351,8 @@ export class MissionProductService {
       depositTxHash: result.txHash,
       explorerUrl,
       channelId: result.channelId,
+      sessionKey: mission.sessionKey,
+      depositVerified: mission.depositVerified === true,
     }
   }
 
@@ -316,7 +396,20 @@ export class MissionProductService {
       }),
     )
 
+    // The provider's charged figure is lifetime: what it shows now is not this trip's.
+    try {
+      mission.chargedBaselineMicroUsd = (await this.connectivity.getUsage(esimRecord.iccid)).chargedMicroUsd.toString()
+    } catch {
+      // The first usage reading sets the baseline instead.
+    }
     await this.repo.save(mission)
+
+    // First tranche. A failure here does not undo the activation: the fund-flow job retries.
+    try {
+      await this.locks.withChannelLock(mission.id, async () => this.fundTranche(await this.load(mission.id)))
+    } catch (error) {
+      this.logger({ level: 'error', msg: 'first tranche not funded', missionId: mission.id, detail: messageOf(error) })
+    }
     return { missionId: mission.id, status: 'active', isMock: !this.hasCitrusReal, esim: publicEsim }
   }
 
@@ -368,6 +461,10 @@ export class MissionProductService {
   }
 
   async pauseMission(missionId: string) {
+    return this.locks.withChannelLock(missionId, () => this.pauseLocked(missionId))
+  }
+
+  private async pauseLocked(missionId: string) {
     const mission = await this.load(missionId)
     if (this.isLiveMode() && !this.hasCitrusReal) {
       throw unavailable('Citrus Mobile is not configured for live mode')
@@ -384,6 +481,10 @@ export class MissionProductService {
   }
 
   async resumeMission(missionId: string) {
+    return this.locks.withChannelLock(missionId, () => this.resumeLocked(missionId))
+  }
+
+  private async resumeLocked(missionId: string) {
     const mission = await this.load(missionId)
     if (this.isLiveMode() && !this.hasCitrusReal) {
       throw unavailable('Citrus Mobile is not configured for live mode')
@@ -443,6 +544,10 @@ export class MissionProductService {
   }
 
   async confirmTopUpPayment(missionId: string, intentId: string, txHash: string) {
+    return this.locks.withChannelLock(missionId, () => this.confirmTopUpLocked(missionId, intentId, txHash))
+  }
+
+  private async confirmTopUpLocked(missionId: string, intentId: string, txHash: string) {
     const mission = await this.load(missionId)
 
     const topup = mission.topups.find((t) => t.intentId === intentId)
@@ -477,6 +582,9 @@ export class MissionProductService {
     topup.explorerUrl = solanaTxUrl(txHash) ?? result.explorerUrl
     mission.balanceUsdc += topup.amountUsdc
     mission.budgetUsdc += topup.amountUsdc
+    mission.depositAtomic = this.solanaDeposit(mission.id, mission.budgetUsdc).amount
+    // A top-up restarts the escrow's refund timeout.
+    if (mission.escrowActiveAt) mission.escrowActiveAt = new Date().toISOString()
     if (mission.status === 'paused' && mission.balanceUsdc > 0) {
       mission.status = 'active'
       mission.esimStatus = 'active'
@@ -566,6 +674,11 @@ export class MissionProductService {
   }
 
   async confirmClose(missionId: string, txHash: string, settlement: 'close' | 'timeout_refund' = 'close') {
+    return this.locks.withChannelLock(missionId, () => this.recordClose(missionId, txHash, settlement))
+  }
+
+  /** The traveler's wallet sent the close or the timeout refund; this records it. */
+  private async recordClose(missionId: string, txHash: string, settlement: 'close' | 'timeout_refund') {
     const mission = await this.load(missionId)
 
     if (mission.status === 'completed' && mission.closeTxHash) {
@@ -657,6 +770,10 @@ export class MissionProductService {
   }
 
   async processDemoTraffic(missionId: string, bytes: number) {
+    return this.locks.withChannelLock(missionId, () => this.meterDemoTraffic(missionId, bytes))
+  }
+
+  private async meterDemoTraffic(missionId: string, bytes: number) {
     if (process.env.ENABLE_DEMO_TRAFFIC !== 'true') {
       throw new Error('Demo traffic injection is not enabled on this server')
     }
@@ -672,14 +789,7 @@ export class MissionProductService {
     const meterService = this.getOrCreateMeterService(mission, mission.channelId)
     const result = await meterService.processTraffic(bytes)
 
-    const currentBytes = BigInt(mission.meteredBytes || '0') + BigInt(bytes)
-    mission.meteredBytes = currentBytes.toString()
-
-    const totalMb = Number(currentBytes) / 1_000_000
-    const costUsdc = totalMb * mission.destination.pricePerMbUsdc
-    mission.consumedMb = parseFloat(totalMb.toFixed(2))
-    mission.consumedUsdc = parseFloat(costUsdc.toFixed(6))
-    mission.balanceUsdc = Math.max(0, parseFloat((mission.budgetUsdc - costUsdc).toFixed(6)))
+    applyMeteredBytes(mission, BigInt(mission.meteredBytes || '0') + BigInt(bytes))
 
     if (result.actionApplied.kind === 'suspend' || mission.balanceUsdc <= 0) {
       mission.status = 'paused'
@@ -718,4 +828,312 @@ export class MissionProductService {
       demoTraffic: true,
     }
   }
+
+  // ---------------------------------------------------------------------
+  // Automatic fund flow: vouchers, tranches, claims and the backend's close.
+  // ---------------------------------------------------------------------
+
+  /** What the app has to sign next, and what AstroAm already holds. */
+  async voucherRequest(missionId: string) {
+    const mission = await this.load(missionId)
+    const plan = this.solanaClose(mission)
+    return {
+      escrowId: plan.escrowId,
+      programId: plan.programId,
+      depositAtomic: plan.amount,
+      /** Metered usage so far, capped by the deposit: the amount to sign. */
+      cumulativeAtomic: plan.cumulativeAmount,
+      messageBase64: plan.messageBase64,
+      signedAtomic: mission.voucher?.cumulativeAtomic ?? '0',
+      claimedAtomic: mission.claimedAtomic ?? '0',
+      sessionKey: mission.sessionKey ?? null,
+    }
+  }
+
+  /**
+   * Checks a voucher and keeps it when it is the highest so far. It must be
+   * signed by this trip's session key or wallet, and it cannot authorize more
+   * than the metered usage. Throws when it is not acceptable.
+   */
+  private acceptVoucher(mission: ProductMission, voucher: SignedVoucher): boolean {
+    if (mission.paymentStatus !== 'paid' || mission.status === 'completed' || mission.status === 'cancelled') {
+      throw new Error('This trip is not open, so it takes no vouchers')
+    }
+    const plan = this.solanaClose(mission)
+    if (!plan.deployed || !plan.programId) throw new Error('The escrow program is not configured')
+    if (voucher.signer !== mission.sessionKey && voucher.signer !== mission.travelerAddress) {
+      throw new Error("The voucher is not signed by this trip's session key or wallet")
+    }
+    const amount = BigInt(voucher.cumulativeAtomic)
+    if (amount > BigInt(plan.amount)) throw new Error('The voucher authorizes more than the deposit')
+    if (amount > BigInt(plan.cumulativeAmount)) throw new Error('The voucher authorizes more than the metered usage')
+    const held = mission.voucher ? BigInt(mission.voucher.cumulativeAtomic) : -1n
+    if (amount < held) throw new Error('A higher voucher was already received')
+    if (amount < BigInt(mission.claimedAtomic ?? '0')) throw new Error('The voucher is below what was already collected')
+    if (!verifyVoucher(plan.programId, plan.escrowId, voucher)) throw new Error('The voucher signature does not verify')
+    if (amount === held) return false
+    mission.voucher = { ...voucher, receivedAt: new Date().toISOString() }
+    return true
+  }
+
+  /** The app sends a cumulative voucher after a usage reading. Funds the next tranche when it covers one. */
+  async submitVoucher(missionId: string, voucher: SignedVoucher) {
+    return this.locks.withChannelLock(missionId, async () => {
+      const mission = await this.load(missionId)
+      const isNew = this.acceptVoucher(mission, voucher)
+      if (isNew) await this.repo.save(mission)
+      let fundedNow = 0
+      try {
+        fundedNow = await this.fundTranche(mission)
+      } catch (error) {
+        this.logger({ level: 'error', msg: 'tranche not funded', missionId, detail: messageOf(error) })
+      }
+      return {
+        accepted: true,
+        cumulativeAtomic: mission.voucher!.cumulativeAtomic,
+        claimedAtomic: mission.claimedAtomic ?? '0',
+        fundedCents: mission.fundedCents ?? 0,
+        fundedNowCents: fundedNow,
+      }
+    })
+  }
+
+  /**
+   * Keeps the eSIM wallet at most one tranche ahead of what the vouchers
+   * cover. Only for a deposit read from the chain. Returns the cents funded.
+   *
+   * A fund is never blindly retried: the intent is saved before the call,
+   * and an unconfirmed one is settled against what the eSIM holds.
+   */
+  private async fundTranche(mission: ProductMission): Promise<number> {
+    if (!mission.depositVerified || !mission.iccid || mission.status !== 'active') return 0
+    const iccid = mission.iccid
+    let funded = mission.fundedCents ?? 0
+
+    if (mission.pendingFund) {
+      const usage = await this.connectivity.getUsage(iccid)
+      const baseline = BigInt(mission.chargedBaselineMicroUsd ?? usage.chargedMicroUsd.toString())
+      const spent = usage.chargedMicroUsd > baseline ? usage.chargedMicroUsd - baseline : 0n
+      // Everything funded this trip is either still in the wallet or already spent.
+      const expected = BigInt(funded + mission.pendingFund.amountCents - FUND_TOLERANCE_CENTS) * MICRO_USD_PER_CENT
+      if (usage.walletMicroUsd + spent >= expected) funded += mission.pendingFund.amountCents
+      mission.fundedCents = funded
+      mission.pendingFund = undefined
+      await this.repo.save(mission)
+    }
+
+    const amount = nextFundCents(
+      {
+        depositAtomic: BigInt(mission.depositAtomic ?? '0'),
+        voucherAtomic: BigInt(mission.voucher?.cumulativeAtomic ?? '0'),
+        fundedCents: funded,
+      },
+      this.fundFlow,
+    )
+    if (amount === 0) return 0
+
+    mission.pendingFund = { amountCents: amount, requestedAt: new Date().toISOString() }
+    await this.repo.save(mission)
+    await this.connectivity.topUp(iccid, amount)
+    mission.fundedCents = funded + amount
+    mission.pendingFund = undefined
+    await this.repo.save(mission)
+    this.logger({ level: 'info', msg: 'esim tranche funded', missionId: mission.id, amountCents: amount, fundedCents: mission.fundedCents })
+    return amount
+  }
+
+  /** Reads the provider's charged figure and turns this trip's part into metered usage. */
+  private async readProviderUsage(mission: ProductMission): Promise<void> {
+    if (!mission.iccid) return
+    const usage = await this.connectivity.getUsage(mission.iccid)
+    if (mission.chargedBaselineMicroUsd === undefined) {
+      mission.chargedBaselineMicroUsd = usage.chargedMicroUsd.toString()
+      await this.repo.save(mission)
+      return
+    }
+    const baseline = BigInt(mission.chargedBaselineMicroUsd)
+    const charged = usage.chargedMicroUsd > baseline ? usage.chargedMicroUsd - baseline : 0n
+    const pricePerMbRaw = envRaw('PRICE_PER_MB_RAW') ?? usdcToRaw(mission.destination.pricePerMbUsdc)
+    const bytes = equivalentBytes(charged, this.fundFlow.markupBps, this.fundFlow.usdcUsdRateBps, pricePerMbRaw)
+    // Monotonic: a late or lower reading never takes usage back.
+    if (bytes > BigInt(mission.meteredBytes || '0')) {
+      applyMeteredBytes(mission, bytes)
+      mission.carrierBytes = bytes.toString()
+      await this.repo.save(mission)
+    }
+  }
+
+  /** Sends a `claim` when the voucher holds a tranche not collected yet. */
+  private async claimIfDue(mission: ProductMission, now: Date): Promise<ClaimRecord | null> {
+    if (!this.chain || !mission.depositVerified || !mission.escrowId || !mission.voucher) return null
+    const voucherAtomic = BigInt(mission.voucher.cumulativeAtomic)
+    if (!claimIsDue(voucherAtomic, BigInt(mission.claimedAtomic ?? '0'), this.fundFlow)) return null
+
+    let txHash: string
+    try {
+      txHash = await this.chain.claim({ escrowId: mission.escrowId, voucher: mission.voucher })
+    } catch (error) {
+      // A claim that landed but was never recorded (a crash in between) fails
+      // as "nothing to claim": take what the escrow says before giving up.
+      const state = await this.chain.readEscrow(mission.escrowId)
+      if (state && state.claimed >= voucherAtomic) {
+        mission.claimedAtomic = state.claimed.toString()
+        mission.escrowActiveAt = new Date(state.activeAt * 1000).toISOString()
+        await this.repo.save(mission)
+        return null
+      }
+      throw error
+    }
+    const record: ClaimRecord = {
+      txHash,
+      explorerUrl: solanaTxUrl(txHash) ?? undefined,
+      cumulativeAtomic: voucherAtomic.toString(),
+      at: now.toISOString(),
+    }
+    mission.claimedAtomic = voucherAtomic.toString()
+    mission.claims = [...(mission.claims ?? []), record]
+    // A claim restarts the escrow's refund timeout.
+    mission.escrowActiveAt = record.at
+    await this.repo.save(mission)
+    this.logger({ level: 'info', msg: 'escrow claim', missionId: mission.id, txHash, cumulativeAtomic: record.cumulativeAtomic })
+    return record
+  }
+
+  /** Closes the escrow with the highest voucher: the rest is paid and the traveler is refunded. */
+  private async closeWithVoucher(mission: ProductMission, reason?: AutoCloseReason) {
+    if (!this.chain) throw unavailable('No operator key is configured, so the backend cannot close the escrow')
+    if (!mission.escrowId || !mission.voucher || !mission.travelerAddress) {
+      throw new Error('There is no signed voucher to close this trip with')
+    }
+    if (mission.iccid) {
+      try {
+        await this.connectivity.refundUnused(mission.iccid)
+      } catch {
+        // The eSIM wallet goes back to the reseller balance later; the USDC refund does not wait for it.
+      }
+    }
+
+    let txHash: string | undefined
+    try {
+      txHash = await this.chain.close({
+        escrowId: mission.escrowId,
+        voucher: mission.voucher,
+        traveler: mission.travelerAddress,
+      })
+    } catch (error) {
+      // Already closed on-chain (by the traveler, or by a close this process did not get to record).
+      const state = await this.chain.readEscrow(mission.escrowId)
+      if (!state?.settled) throw error
+    }
+
+    const settled = BigInt(mission.voucher.cumulativeAtomic)
+    const deposit = BigInt(mission.depositAtomic ?? '0')
+    mission.status = 'completed'
+    mission.esimStatus = 'disabled'
+    mission.settlement = 'close'
+    mission.settledUsdc = Number(formatAtomic(settled))
+    mission.refundedUsdc = Number(formatAtomic(deposit > settled ? deposit - settled : 0n))
+    mission.claimedAtomic = settled.toString()
+    if (txHash) {
+      mission.closeTxHash = txHash
+      mission.closeExplorerUrl = solanaTxUrl(txHash) ?? undefined
+    }
+    if (reason) mission.autoCloseReason = reason
+    await this.repo.save(mission)
+    this.logger({ level: 'info', msg: 'escrow close', missionId: mission.id, txHash, reason: reason ?? 'traveler' })
+    return {
+      txHash,
+      status: 'completed' as const,
+      explorerUrl: mission.closeExplorerUrl,
+      settlement: 'close' as const,
+      settledUsdc: mission.settledUsdc,
+      refundedUsdc: mission.refundedUsdc,
+    }
+  }
+
+  /**
+   * The traveler ends the trip and the backend sends the close. The app adds
+   * the final voucher, signed by the session key: no wallet popup. That
+   * voucher is also what shows the request comes from the traveler.
+   */
+  async settleMission(missionId: string, voucher?: SignedVoucher) {
+    return this.locks.withChannelLock(missionId, async () => {
+      const mission = await this.load(missionId)
+      if (mission.status === 'completed') {
+        return {
+          txHash: mission.closeTxHash,
+          status: 'completed' as const,
+          explorerUrl: mission.closeExplorerUrl,
+          settlement: mission.settlement ?? ('close' as const),
+          settledUsdc: mission.settledUsdc,
+          refundedUsdc: mission.refundedUsdc,
+        }
+      }
+      if (mission.paymentStatus !== 'paid') throw new Error('This mission has no confirmed deposit to close')
+      if (!this.chain) throw unavailable('No operator key is configured, so the backend cannot close the escrow')
+      if (!voucher) throw new Error("Ending the trip needs its final voucher, signed by the trip's session key or wallet")
+      if (this.acceptVoucher(mission, voucher)) await this.repo.save(mission)
+      return this.closeWithVoucher(mission)
+    })
+  }
+
+  /** Trips the fund flow still has work on: paid, open, and with a deposit read from the chain. */
+  async openMissionIds(): Promise<string[]> {
+    const missions = await this.repo.findAll()
+    return missions
+      .filter((m) => m.depositVerified && m.paymentStatus === 'paid' && (m.status === 'active' || m.status === 'paused'))
+      .map((m) => m.id)
+  }
+
+  /**
+   * One pass of the fund flow for a trip: read usage, fund the next tranche,
+   * collect what the voucher covers, and close when it is time. Never throws:
+   * a failed step is reported and the next pass retries.
+   */
+  async advance(missionId: string, now: Date = new Date()): Promise<AdvanceResult> {
+    return this.locks.withChannelLock(missionId, async () => {
+      const result: AdvanceResult = { missionId, fundedCents: 0 }
+      try {
+        const mission = await this.load(missionId)
+        if (!mission.depositVerified || mission.paymentStatus !== 'paid') return result
+        if (mission.status !== 'active' && mission.status !== 'paused') return result
+
+        await this.readProviderUsage(mission)
+
+        const reason = autoCloseReason(mission, this.fundFlow, now, this.solanaDeposit(mission.id).timeoutSeconds)
+        if (reason && mission.voucher) {
+          const closed = await this.closeWithVoucher(mission, reason)
+          result.closeTxHash = closed.txHash
+          result.closeReason = reason
+          return result
+        }
+        if (reason) {
+          // Nothing signed: the escrow's own timeout refund is what returns this deposit.
+          this.logger({ level: 'warn', msg: 'trip is due to close but has no voucher', missionId, reason })
+        }
+
+        result.fundedCents = await this.fundTranche(mission)
+        result.claimTxHash = (await this.claimIfDue(mission, now))?.txHash
+      } catch (error) {
+        result.error = messageOf(error)
+        this.logger({ level: 'error', msg: 'fund flow step failed', missionId, detail: result.error })
+      }
+      return result
+    })
+  }
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/** Sets the trip's metered usage and what it costs at the destination's rate. */
+function applyMeteredBytes(mission: ProductMission, totalBytes: bigint): void {
+  if (totalBytes > BigInt(mission.meteredBytes || '0')) mission.lastUsageAt = new Date().toISOString()
+  mission.meteredBytes = totalBytes.toString()
+  const totalMb = Number(totalBytes) / 1_000_000
+  const costUsdc = totalMb * mission.destination.pricePerMbUsdc
+  mission.consumedMb = parseFloat(totalMb.toFixed(2))
+  mission.consumedUsdc = parseFloat(costUsdc.toFixed(6))
+  mission.balanceUsdc = Math.max(0, parseFloat((mission.budgetUsdc - costUsdc).toFixed(6)))
 }

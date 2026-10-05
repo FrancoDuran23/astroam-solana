@@ -7,6 +7,8 @@ import type {
   PaymentConfirmationResult,
   PaymentIntentInfo,
   PublicEsimInfo,
+  SignedVoucher,
+  VoucherRequest,
   WizardData,
 } from '../types/mission'
 
@@ -107,12 +109,18 @@ export class ApiMissionService {
     return handleResponse<PaymentIntentInfo>(res)
   }
 
-  async confirmPayment(missionId: string, intentId: string, txHash: string, traveler?: string): Promise<PaymentConfirmationResult> {
+  async confirmPayment(
+    missionId: string,
+    intentId: string,
+    txHash: string,
+    traveler?: string,
+    sessionKey?: string,
+  ): Promise<PaymentConfirmationResult> {
     const res = await fetch(`${this.baseUrl}/missions/${missionId}/payment-confirmation`, {
       method: 'POST',
       headers: getAuthHeaders(),
       credentials: 'include',
-      body: JSON.stringify({ intentId, txHash, ...(traveler ? { traveler } : {}) }),
+      body: JSON.stringify({ intentId, txHash, ...(traveler ? { traveler } : {}), ...(sessionKey ? { sessionKey } : {}) }),
     })
     return handleResponse<PaymentConfirmationResult>(res)
   }
@@ -188,19 +196,30 @@ export class ApiMissionService {
     return handleResponse<PaymentConfirmationResult & { balanceUsdc?: number }>(res)
   }
 
-  async getAuthorization(missionId: string): Promise<{ voucherSigning: 'rail' | 'traveler'; authorizedUsdc: number }> {
-    const res = await fetch(`${this.baseUrl}/missions/${missionId}/authorization`, { credentials: 'include' })
-    return handleResponse(res)
+  async voucherRequest(missionId: string): Promise<VoucherRequest> {
+    const res = await fetch(`${this.baseUrl}/missions/${missionId}/voucher-request`, { credentials: 'include' })
+    return handleResponse<VoucherRequest>(res)
   }
 
-  async submitAuthorization(missionId: string, cumulativeAmount: string, signature: string): Promise<{ authorizedUsdc: number }> {
-    const res = await fetch(`${this.baseUrl}/missions/${missionId}/authorizations`, {
+  async submitVoucher(missionId: string, voucher: SignedVoucher): Promise<{ cumulativeAtomic: string; claimedAtomic: string }> {
+    const res = await fetch(`${this.baseUrl}/missions/${missionId}/vouchers`, {
       method: 'POST',
       headers: getAuthHeaders(),
       credentials: 'include',
-      body: JSON.stringify({ cumulativeAmount, signature }),
+      body: JSON.stringify(voucher),
     })
     return handleResponse(res)
+  }
+
+  /** The backend sends the close with the final session-key voucher. */
+  async settle(missionId: string, voucher: SignedVoucher): Promise<FinishResult> {
+    const res = await fetch(`${this.baseUrl}/missions/${missionId}/settle`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      credentials: 'include',
+      body: JSON.stringify({ voucher }),
+    })
+    return handleResponse<FinishResult>(res)
   }
 
   async confirmClose(missionId: string, txHash: string, settlement: 'close' | 'timeout_refund'): Promise<FinishResult> {

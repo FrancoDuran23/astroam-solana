@@ -11,6 +11,7 @@
     "test": "node --experimental-strip-types --test \"src/**/*.test.ts\"",
     "solana:test": "cargo test --manifest-path programs/astroam-escrow/Cargo.toml -- --test-threads=1",
     "solana:deploy": "node --experimental-strip-types scripts/deploy-solana-escrow.ts",
+    "solana:upgrade": "node --experimental-strip-types scripts/deploy-solana-escrow.ts --upgrade",
     "meter:demo": "node src/meter/demo-meter.ts"
   },
   "dependencies": {

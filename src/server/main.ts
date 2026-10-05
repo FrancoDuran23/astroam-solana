@@ -7,6 +7,9 @@ import { CitrusWebhookHandler } from "../services/CitrusWebhookHandler.ts";
 import { webhookEventPath, WebhookEventLog } from "../persistence/webhook-event.ts";
 import { createPaymentRail } from "../rails/createPaymentRail.ts";
 import { bootProductService } from "../product/runtime/product-boot.ts";
+import { createEscrowChain, type EscrowChain } from "../solana/EscrowChain.ts";
+import { FUND_FLOW_INTERVAL_MS_DEFAULT, startFundFlowLoop } from "../jobs/fund-flow.ts";
+import { isSolanaAddress } from "../shared/solana/base58.ts";
 import { createServerApp } from "./app.ts";
 import type { CitrusWebhooksRouteOptions } from "./routes/citrus-webhooks.ts";
 
@@ -17,7 +20,21 @@ const log = (line: Record<string, unknown>) => process.stdout.write(`${JSON.stri
 
 const rail = createPaymentRail(env);
 const network = rail.network;
-const productService = bootProductService(env, rail);
+
+// Operator key (SOLANA_OPERATOR_KEYPAIR): with it the backend reads deposits
+// from the escrow, funds the eSIM in tranches and sends claims and closes. A
+// key that cannot be read degrades to "no automation" with a loud error.
+let escrowChain: EscrowChain | undefined;
+try {
+  escrowChain = createEscrowChain(env);
+} catch (error) {
+  log({
+    level: "error",
+    msg: "operator key not loaded — the fund flow is NOT automatic",
+    detail: error instanceof Error ? error.message : String(error),
+  });
+}
+const productService = bootProductService(env, rail, escrowChain);
 
 // Citrus webhooks: mounted when CONNECTIVITY_PROVIDER=citrus and
 // CITRUS_WEBHOOK_SECRET are set. Incomplete config degrades to "no webhooks"
@@ -55,3 +72,23 @@ const app = createServerApp({ productService, ...(citrusWebhooks !== undefined ?
 app.listen(port, () => {
   log({ level: "info", msg: `astroam server listening on :${port}`, network });
 });
+
+if (escrowChain !== undefined) {
+  const treasuryAddress = env.BRIDGE_LIQUIDATION_ADDRESS?.trim();
+  const sweepMinUsdc = Number(env.TREASURY_SWEEP_MIN_USDC);
+  const treasury = isSolanaAddress(treasuryAddress)
+    ? {
+        address: treasuryAddress!,
+        minAtomic: BigInt(Math.round((Number.isFinite(sweepMinUsdc) && sweepMinUsdc > 0 ? sweepMinUsdc : 5) * 1e6)),
+      }
+    : undefined;
+  const intervalMs = Number(env.FUND_FLOW_INTERVAL_MS) > 0 ? Number(env.FUND_FLOW_INTERVAL_MS) : FUND_FLOW_INTERVAL_MS_DEFAULT;
+  startFundFlowLoop({ service: productService, chain: escrowChain, treasury, logger: log }, intervalMs);
+  log({
+    level: "info",
+    msg: "fund flow is automatic",
+    operator: escrowChain.operator,
+    intervalMs,
+    treasury: treasury?.address ?? "not set (collected USDC stays with the payee)",
+  });
+}
