@@ -3,8 +3,8 @@
 
 use astroam_escrow::{
     close_voucher_message, process_instruction, ERR_ALREADY_SETTLED, ERR_AMOUNT_EXCEEDS, ERR_BAD_ACCOUNT,
-    ERR_BAD_VOUCHER, ERR_BELOW_CLAIMED, ERR_NOTHING_TO_CLAIM, ERR_TIMEOUT, ERR_UNEXPECTED_DECIMALS, ESCROW_LEN,
-    LEGACY_ESCROW_LEN, TAG_CLAIM, TAG_CLOSE, TAG_DEPOSIT, TAG_INITIALIZE, TAG_REFUND,
+    ERR_BAD_VOUCHER, ERR_BELOW_ATTESTED, ERR_BELOW_CLAIMED, ERR_NOTHING_TO_CLAIM, ERR_TIMEOUT, ERR_UNEXPECTED_DECIMALS,
+    ESCROW_LEN, LEGACY_ESCROW_LEN, TAG_CHECKPOINT, TAG_CLAIM, TAG_CLOSE, TAG_DEPOSIT, TAG_INITIALIZE, TAG_REFUND,
 };
 use solana_program_test::*;
 use solana_sdk::{
@@ -33,6 +33,8 @@ struct World {
     traveler_token: Pubkey,
     payee: Keypair,
     payee_token: Pubkey,
+    /// Signs usage vouchers. Not the traveler and not the payee.
+    meter: Keypair,
 }
 
 async fn world(decimals: u8) -> World {
@@ -48,6 +50,7 @@ async fn world(decimals: u8) -> World {
     let mint = Keypair::new();
     let traveler = Keypair::new();
     let payee = Keypair::new();
+    let meter = Keypair::new();
     let traveler_token = Keypair::new();
     let payee_token = Keypair::new();
     let rent = context.banks_client.get_rent().await.unwrap();
@@ -96,10 +99,11 @@ async fn world(decimals: u8) -> World {
     send(&mut context, &ixs, &[cloned(&mint), cloned(&traveler_token), cloned(&payee_token)]).await;
 
     if decimals == 6 {
-        let mut data = Vec::with_capacity(1 + 8 + 32);
+        let mut data = Vec::with_capacity(1 + 8 + 32 + 32);
         data.push(TAG_INITIALIZE);
         data.extend_from_slice(&TIMEOUT.to_le_bytes());
         data.extend_from_slice(payee.pubkey().as_ref());
+        data.extend_from_slice(meter.pubkey().as_ref());
         let (config, _) = Pubkey::find_program_address(&[b"config"], &program_id);
         send(
             &mut context,
@@ -126,7 +130,17 @@ async fn world(decimals: u8) -> World {
         traveler_token: traveler_token.pubkey(),
         payee,
         payee_token: payee_token.pubkey(),
+        meter,
     }
+}
+
+fn init_data(payee: &Pubkey, meter: &Pubkey) -> Vec<u8> {
+    let mut data = Vec::with_capacity(1 + 8 + 32 + 32);
+    data.push(TAG_INITIALIZE);
+    data.extend_from_slice(&TIMEOUT.to_le_bytes());
+    data.extend_from_slice(payee.as_ref());
+    data.extend_from_slice(meter.as_ref());
+    data
 }
 
 fn sign_tx(tx: &mut Transaction, all: &[Keypair], blockhash: solana_sdk::hash::Hash) {
@@ -222,7 +236,8 @@ fn deposit_with_session_ix(world: &World, escrow_id: &[u8; 32], amount: u64, ses
 }
 
 fn close_ixs(world: &World, escrow_id: &[u8; 32], amount: u64) -> Vec<Instruction> {
-    close_signed_ixs(world, escrow_id, amount, &world.traveler)
+    let meter = cloned(&world.meter);
+    close_signed_ixs(world, escrow_id, amount, &meter)
 }
 
 fn close_signed_ixs(world: &World, escrow_id: &[u8; 32], amount: u64, signer: &Keypair) -> Vec<Instruction> {
@@ -276,6 +291,27 @@ fn claim_ixs(world: &World, escrow_id: &[u8; 32], amount: u64, signer: &Keypair)
     vec![ed25519, claim]
 }
 
+fn checkpoint_ixs(world: &World, escrow_id: &[u8; 32], amount: u64, signer: &Keypair) -> Vec<Instruction> {
+    let (config, _) = Pubkey::find_program_address(&[b"config"], &world.program_id);
+    let (escrow, _) = Pubkey::find_program_address(&[b"escrow", escrow_id], &world.program_id);
+    let message = close_voucher_message(&world.program_id, escrow_id, amount);
+    let ed25519 = ed25519_verify_ix(signer, &message);
+    let mut data = Vec::with_capacity(9);
+    data.push(TAG_CHECKPOINT);
+    data.extend_from_slice(&amount.to_le_bytes());
+    let checkpoint = Instruction {
+        program_id: world.program_id,
+        accounts: vec![
+            AccountMeta::new(world.payee.pubkey(), true),
+            AccountMeta::new_readonly(config, false),
+            AccountMeta::new(escrow, false),
+            AccountMeta::new_readonly(solana_sdk::sysvar::instructions::id(), false),
+        ],
+        data,
+    };
+    vec![ed25519, checkpoint]
+}
+
 fn refund_ix(world: &World, escrow_id: &[u8; 32]) -> Instruction {
     let (config, _) = Pubkey::find_program_address(&[b"config"], &world.program_id);
     let (escrow, _) = Pubkey::find_program_address(&[b"escrow", escrow_id], &world.program_id);
@@ -287,6 +323,7 @@ fn refund_ix(world: &World, escrow_id: &[u8; 32]) -> Instruction {
             AccountMeta::new_readonly(config, false),
             AccountMeta::new(escrow, false),
             AccountMeta::new(vault, false),
+            AccountMeta::new(world.payee_token, false),
             AccountMeta::new(world.traveler_token, false),
             AccountMeta::new_readonly(spl_token::id(), false),
         ],
@@ -314,6 +351,12 @@ async fn do_session_deposit(world: &mut World, escrow_id: &[u8; 32], amount: u64
 
 async fn do_close_signed(world: &mut World, escrow_id: &[u8; 32], amount: u64, signer: &Keypair) -> Result<(), BanksClientError> {
     let ixs = close_signed_ixs(world, escrow_id, amount, signer);
+    let payee = cloned(&world.payee);
+    try_send(&mut world.context, &ixs, &[payee]).await
+}
+
+async fn do_checkpoint(world: &mut World, escrow_id: &[u8; 32], amount: u64, signer: &Keypair) -> Result<(), BanksClientError> {
+    let ixs = checkpoint_ixs(world, escrow_id, amount, signer);
     let payee = cloned(&world.payee);
     try_send(&mut world.context, &ixs, &[payee]).await
 }
@@ -466,6 +509,7 @@ async fn seven_decimal_mint_cannot_initialize() {
     data.push(TAG_INITIALIZE);
     data.extend_from_slice(&TIMEOUT.to_le_bytes());
     data.extend_from_slice(world.payee.pubkey().as_ref());
+    data.extend_from_slice(world.meter.pubkey().as_ref());
     let (config, _) = Pubkey::find_program_address(&[b"config"], &world.program_id);
     let payer = world.context.payer.pubkey();
     let program_id = world.program_id;
@@ -504,15 +548,20 @@ async fn deposit_registers_the_session_key() {
 }
 
 #[tokio::test]
-async fn session_key_closes_without_the_traveler_signature() {
+async fn session_key_cannot_authorize_settlement() {
     let mut world = world(6).await;
     let escrow_id = [11u8; 32];
     let session = Keypair::new();
     do_session_deposit(&mut world, &escrow_id, 5_000_000, &session).await;
-    do_close_signed(&mut world, &escrow_id, 625_000, &session).await.unwrap();
-
-    assert_eq!(token_amount(&mut world.context, &world.payee_token).await, 625_000);
-    assert_eq!(token_amount(&mut world.context, &world.traveler_token).await, SUPPLY - 625_000);
+    // The session key is still stored at deposit. It no longer moves USDC:
+    // it lives in the traveler's browser, so accepting it would let them block
+    // or understate the charge.
+    let err = do_close_signed(&mut world, &escrow_id, 625_000, &session).await.unwrap_err();
+    assert_eq!(custom_of(&err), Some(ERR_BAD_VOUCHER));
+    let err = do_claim(&mut world, &escrow_id, 625_000, &session).await.unwrap_err();
+    assert_eq!(custom_of(&err), Some(ERR_BAD_VOUCHER));
+    let (vault, _) = Pubkey::find_program_address(&[b"vault", &escrow_id], &world.program_id);
+    assert_eq!(token_amount(&mut world.context, &vault).await, 5_000_000);
 }
 
 #[tokio::test]
@@ -527,9 +576,12 @@ async fn voucher_from_an_unregistered_key_is_rejected() {
     assert_eq!(custom_of(&err), Some(ERR_BAD_VOUCHER));
     let err = do_claim(&mut world, &escrow_id, 5_000_000, &stranger).await.unwrap_err();
     assert_eq!(custom_of(&err), Some(ERR_BAD_VOUCHER));
-    // The payee is not a voucher signer either: AstroAm cannot name its own amount.
+    // The payee key is not the meter. Holding the treasury does not authorize a charge.
     let payee = cloned(&world.payee);
     let err = do_claim(&mut world, &escrow_id, 5_000_000, &payee).await.unwrap_err();
+    assert_eq!(custom_of(&err), Some(ERR_BAD_VOUCHER));
+    let traveler = cloned(&world.traveler);
+    let err = do_close_signed(&mut world, &escrow_id, 5_000_000, &traveler).await.unwrap_err();
     assert_eq!(custom_of(&err), Some(ERR_BAD_VOUCHER));
 }
 
@@ -551,23 +603,24 @@ async fn claims_pay_in_tranches_and_close_pays_only_the_rest() {
     let session = Keypair::new();
     do_session_deposit(&mut world, &escrow_id, 10_000_000, &session).await;
     let (vault, _) = Pubkey::find_program_address(&[b"vault", &escrow_id], &world.program_id);
+    let meter = cloned(&world.meter);
 
-    do_claim(&mut world, &escrow_id, 2_000_000, &session).await.unwrap();
+    do_claim(&mut world, &escrow_id, 2_000_000, &meter).await.unwrap();
     assert_eq!(token_amount(&mut world.context, &world.payee_token).await, 2_000_000);
     assert_eq!(token_amount(&mut world.context, &vault).await, 8_000_000);
 
-    do_claim(&mut world, &escrow_id, 4_500_000, &session).await.unwrap();
+    do_claim(&mut world, &escrow_id, 4_500_000, &meter).await.unwrap();
     assert_eq!(token_amount(&mut world.context, &world.payee_token).await, 4_500_000);
 
     // The same voucher again, or an older one, moves nothing.
-    let err = do_claim(&mut world, &escrow_id, 4_500_000, &session).await.unwrap_err();
+    let err = do_claim(&mut world, &escrow_id, 4_500_000, &meter).await.unwrap_err();
     assert_eq!(custom_of(&err), Some(ERR_NOTHING_TO_CLAIM));
-    let err = do_claim(&mut world, &escrow_id, 2_000_000, &session).await.unwrap_err();
+    let err = do_claim(&mut world, &escrow_id, 2_000_000, &meter).await.unwrap_err();
     assert_eq!(custom_of(&err), Some(ERR_NOTHING_TO_CLAIM));
-    let err = do_claim(&mut world, &escrow_id, 10_000_001, &session).await.unwrap_err();
+    let err = do_claim(&mut world, &escrow_id, 10_000_001, &meter).await.unwrap_err();
     assert_eq!(custom_of(&err), Some(ERR_AMOUNT_EXCEEDS));
 
-    do_close_signed(&mut world, &escrow_id, 6_000_000, &session).await.unwrap();
+    do_close_signed(&mut world, &escrow_id, 6_000_000, &meter).await.unwrap();
     assert_eq!(token_amount(&mut world.context, &world.payee_token).await, 6_000_000);
     assert_eq!(token_amount(&mut world.context, &world.traveler_token).await, SUPPLY - 6_000_000);
     assert_eq!(token_amount(&mut world.context, &vault).await, 0);
@@ -579,14 +632,18 @@ async fn close_cannot_take_back_what_was_claimed() {
     let escrow_id = [15u8; 32];
     let session = Keypair::new();
     do_session_deposit(&mut world, &escrow_id, 5_000_000, &session).await;
-    do_claim(&mut world, &escrow_id, 3_000_000, &session).await.unwrap();
+    let meter = cloned(&world.meter);
+    do_claim(&mut world, &escrow_id, 3_000_000, &meter).await.unwrap();
 
-    // The traveler signs a voucher for zero to get everything back.
-    let traveler = cloned(&world.traveler);
-    let err = do_close_signed(&mut world, &escrow_id, 0, &traveler).await.unwrap_err();
+    // A voucher under what was already paid is rejected before the signature is read.
+    let err = do_close_signed(&mut world, &escrow_id, 0, &meter).await.unwrap_err();
     assert_eq!(custom_of(&err), Some(ERR_BELOW_CLAIMED));
+    // The traveler cannot sign the same amount and take the claim back either.
+    let traveler = cloned(&world.traveler);
+    let err = do_close_signed(&mut world, &escrow_id, 3_000_000, &traveler).await.unwrap_err();
+    assert_eq!(custom_of(&err), Some(ERR_BAD_VOUCHER));
 
-    do_close_signed(&mut world, &escrow_id, 3_000_000, &traveler).await.unwrap();
+    do_close_signed(&mut world, &escrow_id, 3_000_000, &meter).await.unwrap();
     assert_eq!(token_amount(&mut world.context, &world.payee_token).await, 3_000_000);
     assert_eq!(token_amount(&mut world.context, &world.traveler_token).await, SUPPLY - 3_000_000);
 }
@@ -597,9 +654,10 @@ async fn a_claim_restarts_the_timeout_and_the_refund_keeps_it_paid() {
     let escrow_id = [16u8; 32];
     let session = Keypair::new();
     do_session_deposit(&mut world, &escrow_id, 5_000_000, &session).await;
+    let meter = cloned(&world.meter);
 
     advance_clock(&mut world, TIMEOUT - 60).await;
-    do_claim(&mut world, &escrow_id, 2_000_000, &session).await.unwrap();
+    do_claim(&mut world, &escrow_id, 2_000_000, &meter).await.unwrap();
 
     // Seven days after the deposit, but one minute after the claim.
     advance_clock(&mut world, 120).await;
@@ -612,6 +670,102 @@ async fn a_claim_restarts_the_timeout_and_the_refund_keeps_it_paid() {
     assert_eq!(token_amount(&mut world.context, &world.traveler_token).await, SUPPLY - 2_000_000);
     let (vault, _) = Pubkey::find_program_address(&[b"vault", &escrow_id], &world.program_id);
     assert_eq!(token_amount(&mut world.context, &vault).await, 0);
+}
+
+/// The traveler never signs. The payee submits a close whose voucher is the
+/// meter's, and the used amount is paid.
+#[tokio::test]
+async fn traveler_does_not_sign() {
+    let mut world = world(6).await;
+    let escrow_id = [17u8; 32];
+    let deposit_amount = 10_000_000u64;
+    let used = 9_000_000u64;
+    do_deposit(&mut world, &escrow_id, deposit_amount).await;
+
+    let traveler = cloned(&world.traveler);
+    let err = do_close_signed(&mut world, &escrow_id, used, &traveler).await.unwrap_err();
+    assert_eq!(custom_of(&err), Some(ERR_BAD_VOUCHER));
+
+    // The transaction signer is the payee. The traveler is not a signer.
+    do_close(&mut world, &escrow_id, used).await.unwrap();
+    assert_eq!(token_amount(&mut world.context, &world.payee_token).await, used);
+    assert_eq!(token_amount(&mut world.context, &world.traveler_token).await, SUPPLY - used);
+    let (vault, _) = Pubkey::find_program_address(&[b"vault", &escrow_id], &world.program_id);
+    assert_eq!(token_amount(&mut world.context, &vault).await, 0);
+}
+
+/// A checkpoint stores the meter's voucher. After the timeout the payee is
+/// paid that amount and the traveler receives only the rest. Checkpointing
+/// does not restart the deadline.
+#[tokio::test]
+async fn timeout_pays_the_attested_amount_and_refunds_the_rest() {
+    let mut world = world(6).await;
+    let escrow_id = [18u8; 32];
+    let deposit_amount = 10_000_000u64;
+    let used = 9_000_000u64;
+    do_deposit(&mut world, &escrow_id, deposit_amount).await;
+    advance_clock(&mut world, TIMEOUT - 30).await;
+
+    let meter = cloned(&world.meter);
+    do_checkpoint(&mut world, &escrow_id, used, &meter).await.unwrap();
+    let (escrow, _) = Pubkey::find_program_address(&[b"escrow", &escrow_id], &world.program_id);
+    let raw = world.context.banks_client.get_account(escrow).await.unwrap().unwrap();
+    assert_eq!(u64::from_le_bytes(raw.data[123..131].try_into().unwrap()), used);
+
+    // A lower close cannot undercut the checkpoint, and the deadline did not move.
+    let err = do_close(&mut world, &escrow_id, used - 1).await.unwrap_err();
+    assert_eq!(custom_of(&err), Some(ERR_BELOW_ATTESTED));
+    let err = do_refund(&mut world, &escrow_id).await.unwrap_err();
+    assert_eq!(custom_of(&err), Some(ERR_TIMEOUT));
+
+    advance_clock(&mut world, 30).await;
+    do_refund(&mut world, &escrow_id).await.unwrap();
+    assert_eq!(token_amount(&mut world.context, &world.payee_token).await, used);
+    assert_eq!(token_amount(&mut world.context, &world.traveler_token).await, SUPPLY - used);
+    let (vault, _) = Pubkey::find_program_address(&[b"vault", &escrow_id], &world.program_id);
+    assert_eq!(token_amount(&mut world.context, &vault).await, 0);
+}
+
+#[tokio::test]
+async fn voucher_capped_at_the_deposit() {
+    let mut world = world(6).await;
+    let escrow_id = [19u8; 32];
+    let deposit_amount = 10_000_000u64;
+    do_deposit(&mut world, &escrow_id, deposit_amount).await;
+    let meter = cloned(&world.meter);
+
+    let err = do_checkpoint(&mut world, &escrow_id, deposit_amount + 1, &meter).await.unwrap_err();
+    assert_eq!(custom_of(&err), Some(ERR_AMOUNT_EXCEEDS));
+    let err = do_claim(&mut world, &escrow_id, deposit_amount + 1, &meter).await.unwrap_err();
+    assert_eq!(custom_of(&err), Some(ERR_AMOUNT_EXCEEDS));
+    let err = do_close(&mut world, &escrow_id, deposit_amount + 1).await.unwrap_err();
+    assert_eq!(custom_of(&err), Some(ERR_AMOUNT_EXCEEDS));
+
+    let (vault, _) = Pubkey::find_program_address(&[b"vault", &escrow_id], &world.program_id);
+    assert_eq!(token_amount(&mut world.context, &vault).await, deposit_amount);
+    assert_eq!(token_amount(&mut world.context, &world.payee_token).await, 0);
+
+    // The deposit itself is payable. Nothing is left to refund.
+    do_close(&mut world, &escrow_id, deposit_amount).await.unwrap();
+    assert_eq!(token_amount(&mut world.context, &world.payee_token).await, deposit_amount);
+    assert_eq!(token_amount(&mut world.context, &world.traveler_token).await, SUPPLY - deposit_amount);
+}
+
+#[tokio::test]
+async fn wrong_meter_key_rejected() {
+    let mut world = world(6).await;
+    let escrow_id = [20u8; 32];
+    do_deposit(&mut world, &escrow_id, 5_000_000).await;
+    let wrong = Keypair::new();
+
+    let err = do_checkpoint(&mut world, &escrow_id, 1_000_000, &wrong).await.unwrap_err();
+    assert_eq!(custom_of(&err), Some(ERR_BAD_VOUCHER));
+    let err = do_claim(&mut world, &escrow_id, 1_000_000, &wrong).await.unwrap_err();
+    assert_eq!(custom_of(&err), Some(ERR_BAD_VOUCHER));
+    let err = do_close_signed(&mut world, &escrow_id, 1_000_000, &wrong).await.unwrap_err();
+    assert_eq!(custom_of(&err), Some(ERR_BAD_VOUCHER));
+    let (vault, _) = Pubkey::find_program_address(&[b"vault", &escrow_id], &world.program_id);
+    assert_eq!(token_amount(&mut world.context, &vault).await, 5_000_000);
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -633,6 +787,7 @@ async fn instruction_data_matches_the_shared_fixture() {
     let signer = Keypair::new();
     assert_eq!(hex(&claim_ixs(&world, &escrow_id, 500_000, &signer)[1].data), "0520a1070000000000");
     assert_eq!(hex(&close_signed_ixs(&world, &escrow_id, 500_000, &signer)[1].data), "0320a1070000000000");
+    assert_eq!(hex(&checkpoint_ixs(&world, &escrow_id, 500_000, &signer)[1].data), "0620a1070000000000");
 }
 
 // ---------------------------------------------------------------------------
@@ -741,9 +896,11 @@ async fn backend_transactions_run_against_the_program() {
     let (config, _) = Pubkey::find_program_address(&[b"config"], &program_id);
     let (escrow, _) = Pubkey::find_program_address(&[b"escrow", &escrow_id], &program_id);
     let (vault, _) = Pubkey::find_program_address(&[b"vault", &escrow_id], &program_id);
+    let meter = seeded(seeds["meter"].as_u64().unwrap()).pubkey();
     let mut init = vec![TAG_INITIALIZE];
     init.extend_from_slice(&TIMEOUT.to_le_bytes());
     init.extend_from_slice(payee.as_ref());
+    init.extend_from_slice(meter.as_ref());
     let payer = context.payer.pubkey();
     send(
         &mut context,
@@ -787,7 +944,14 @@ async fn backend_transactions_run_against_the_program() {
     .await
     .unwrap();
 
-    // From here on only the operator signs: the backend's claim, then its close.
+    // From here on only the operator signs: checkpoint, then claim, then close.
+    // The vouchers are the meter's. The traveler does not sign them.
+    let attested: u64 = fixture["checkpoint"]["cumulativeAtomic"].as_str().unwrap().parse().unwrap();
+    send_as(&mut context, &backend_ixs(&fixture["checkpoint"]), &operator).await.unwrap();
+    assert_eq!(token_amount(&mut context, &payee_token).await, 0);
+    assert_eq!(token_amount(&mut context, &vault).await, deposit_amount);
+    let _ = attested;
+
     let claimed: u64 = fixture["claim"]["cumulativeAtomic"].as_str().unwrap().parse().unwrap();
     send_as(&mut context, &backend_ixs(&fixture["claim"]), &operator).await.unwrap();
     assert_eq!(token_amount(&mut context, &payee_token).await, claimed);
@@ -808,6 +972,7 @@ async fn an_escrow_from_the_first_layout_still_closes() {
     let mint = Pubkey::new_unique();
     let traveler = Keypair::new();
     let payee = Keypair::new();
+    let meter = Keypair::new();
     let escrow_id = [0x77u8; 32];
     let deposit_amount = 5_000_000u64;
     let traveler_token = Pubkey::new_unique();
@@ -840,9 +1005,7 @@ async fn an_escrow_from_the_first_layout_still_closes() {
     let mut context = test.start_with_context().await;
 
     let (config, _) = Pubkey::find_program_address(&[b"config"], &program_id);
-    let mut init = vec![TAG_INITIALIZE];
-    init.extend_from_slice(&TIMEOUT.to_le_bytes());
-    init.extend_from_slice(payee.pubkey().as_ref());
+    let mut init = init_data(&payee.pubkey(), &meter.pubkey());
     let payer = context.payer.pubkey();
     send(
         &mut context,
@@ -868,6 +1031,7 @@ async fn an_escrow_from_the_first_layout_still_closes() {
         traveler_token,
         payee,
         payee_token,
+        meter,
     };
     let mut world = world;
 

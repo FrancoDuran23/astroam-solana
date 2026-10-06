@@ -30,6 +30,7 @@ import { verifyVoucher, type EscrowState, type SignedVoucher } from '../../share
 import { createChannelMutex } from '../../shared/mutex.ts'
 import { equivalentBytes } from '../../shared/usage-math.ts'
 import type { EscrowChain } from '../../solana/EscrowChain.ts'
+import type { MeterSigner } from '../../solana/meter-signer.ts'
 import {
   DEFAULT_FUND_FLOW,
   autoCloseReason,
@@ -68,6 +69,8 @@ export type MissionProductServiceOptions = {
   hasCitrusReal?: boolean
   /** With it the backend reads deposits from the escrow and sends claims and closes itself. */
   escrowChain?: EscrowChain
+  /** Signs cumulative usage vouchers. The traveler does not. */
+  meter?: MeterSigner
   fundFlow?: FundFlowConfig
   /** How long to wait between reads while a deposit reaches the RPC node, ms. */
   depositReadRetryMs?: number
@@ -91,6 +94,7 @@ export class MissionProductService {
   private rail: PaymentRail
   private hasCitrusReal: boolean
   private chain: EscrowChain | undefined
+  private meter: MeterSigner | undefined
   private fundFlow: FundFlowConfig
   private depositReadRetryMs: number
   private logger: (line: Record<string, unknown>) => void
@@ -107,6 +111,7 @@ export class MissionProductService {
     this.rail = options.rail
     this.hasCitrusReal = options.hasCitrusReal ?? false
     this.chain = options.escrowChain
+    this.meter = options.meter
     this.fundFlow = options.fundFlow ?? DEFAULT_FUND_FLOW
     this.depositReadRetryMs = options.depositReadRetryMs ?? 600
     this.logger = options.logger ?? ((line) => process.stdout.write(`${JSON.stringify(line)}\n`))
@@ -178,8 +183,12 @@ export class MissionProductService {
       solanaProgramId: plan.programId,
       solanaPayee: plan.payee,
       solanaTimeoutSeconds: plan.timeoutSeconds,
+      solanaMeter: plan.meter,
       escrowSessionKeys: plan.sessionKeys,
-      escrowAutomation: plan.sessionKeys && this.chain !== undefined,
+      /** The backend holds the meter key, so it can sign usage vouchers. */
+      escrowMeter: this.meter !== undefined,
+      /** Operator key plus meter key: the backend checkpoints, claims and closes itself. */
+      escrowAutomation: this.meter !== undefined && this.chain !== undefined,
       escrowOperator: this.chain?.operator ?? null,
     }
   }
@@ -664,12 +673,15 @@ export class MissionProductService {
       throw unavailable('Falta SOLANA_PROGRAM_ID y SOLANA_PAYEE_ADDRESS para cerrar el depósito en Solana devnet')
     }
 
-    // The cumulative voucher is quoted here. The traveler's wallet signs it
-    // and sends the single close. Usage stays off-chain until that transaction.
+    // The meter signs the cumulative voucher, including a zero voucher so an
+    // unused deposit can be closed. The wallet may submit the close, but it
+    // does not sign the amount.
+    if (this.ensureMeterVoucher(mission, true)) await this.repo.save(mission)
     return {
       status: 'awaiting_close' as const,
       refundAmountUsdc: Number(solana.refundUsdc),
       solana,
+      meterVoucher: mission.voucher ?? null,
     }
   }
 
@@ -713,8 +725,11 @@ export class MissionProductService {
     mission.settlement = settlement
     if (explorerUrl) mission.closeExplorerUrl = explorerUrl
     if (settlement === 'timeout_refund') {
-      mission.settledUsdc = 0
-      mission.refundedUsdc = Number(quote.amountUsdc)
+      const attested = BigInt(mission.voucher?.cumulativeAtomic ?? '0')
+      const deposit = BigInt(mission.depositAtomic && mission.depositAtomic !== '0' ? mission.depositAtomic : quote.amount)
+      const refund = deposit > attested ? deposit - attested : 0n
+      mission.settledUsdc = Number(formatAtomic(attested))
+      mission.refundedUsdc = Number(formatAtomic(refund))
     } else {
       mission.settledUsdc = Number(quote.usedUsdc)
       mission.refundedUsdc = Number(quote.refundUsdc)
@@ -847,13 +862,47 @@ export class MissionProductService {
       signedAtomic: mission.voucher?.cumulativeAtomic ?? '0',
       claimedAtomic: mission.claimedAtomic ?? '0',
       sessionKey: mission.sessionKey ?? null,
+      meter: this.meter?.publicKey ?? plan.meter,
+      voucher: mission.voucher ?? null,
+    }
+  }
+
+  /**
+   * Signs the metered amount with the meter key when it is higher than the
+   * voucher already held. `allowZero` lets a close refund an unused deposit.
+   * Returns true when a new voucher was stored.
+   */
+  private ensureMeterVoucher(mission: ProductMission, allowZero: boolean): boolean {
+    if (!this.meter) return false
+    const plan = this.solanaClose(mission)
+    if (!plan.programId) return false
+    const amount = BigInt(plan.cumulativeAmount)
+    if (amount === 0n && !allowZero) return false
+    const held = mission.voucher ? BigInt(mission.voucher.cumulativeAtomic) : -1n
+    if (amount <= held) return false
+    return this.acceptVoucher(mission, this.meter.sign(plan.programId, plan.escrowId, amount))
+  }
+
+  /** Writes the held voucher onto the escrow when the chain does not have it yet. */
+  private async checkpointIfDue(mission: ProductMission): Promise<string | undefined> {
+    if (!this.chain || !mission.depositVerified || !mission.escrowId || !mission.voucher) return undefined
+    const amount = BigInt(mission.voucher.cumulativeAtomic)
+    if (amount === 0n) return undefined
+    const state = await this.chain.readEscrow(mission.escrowId)
+    if (!state || state.settled || amount <= state.attested) return undefined
+    try {
+      return await this.chain.checkpoint({ escrowId: mission.escrowId, voucher: mission.voucher })
+    } catch (error) {
+      const again = await this.chain.readEscrow(mission.escrowId)
+      if (again && again.attested >= amount) return undefined
+      throw error
     }
   }
 
   /**
    * Checks a voucher and keeps it when it is the highest so far. It must be
-   * signed by this trip's session key or wallet, and it cannot authorize more
-   * than the metered usage. Throws when it is not acceptable.
+   * signed by the meter key, and it cannot authorize more than the metered
+   * usage or the deposit. Throws when it is not acceptable.
    */
   private acceptVoucher(mission: ProductMission, voucher: SignedVoucher): boolean {
     if (mission.paymentStatus !== 'paid' || mission.status === 'completed' || mission.status === 'cancelled') {
@@ -861,8 +910,9 @@ export class MissionProductService {
     }
     const plan = this.solanaClose(mission)
     if (!plan.deployed || !plan.programId) throw new Error('The escrow program is not configured')
-    if (voucher.signer !== mission.sessionKey && voucher.signer !== mission.travelerAddress) {
-      throw new Error("The voucher is not signed by this trip's session key or wallet")
+    if (!this.meter) throw new Error('The meter key is not configured, so it cannot sign a voucher')
+    if (voucher.signer !== this.meter.publicKey) {
+      throw new Error('The voucher is not signed by the meter key')
     }
     const amount = BigInt(voucher.cumulativeAtomic)
     if (amount > BigInt(plan.amount)) throw new Error('The voucher authorizes more than the deposit')
@@ -874,6 +924,39 @@ export class MissionProductService {
     if (amount === held) return false
     mission.voucher = { ...voucher, receivedAt: new Date().toISOString() }
     return true
+  }
+
+  /**
+   * Signs the metered usage with the meter key, records it on the escrow, and
+   * funds the next tranche. The traveler does not sign.
+   */
+  async attestMission(missionId: string) {
+    return this.locks.withChannelLock(missionId, async () => {
+      const mission = await this.load(missionId)
+      const isNew = this.ensureMeterVoucher(mission, false)
+      if (isNew) await this.repo.save(mission)
+      let checkpointTxHash: string | undefined
+      try {
+        checkpointTxHash = await this.checkpointIfDue(mission)
+      } catch (error) {
+        this.logger({ level: 'error', msg: 'checkpoint not recorded', missionId, detail: messageOf(error) })
+      }
+      let fundedNow = 0
+      try {
+        fundedNow = await this.fundTranche(mission)
+      } catch (error) {
+        this.logger({ level: 'error', msg: 'tranche not funded', missionId, detail: messageOf(error) })
+      }
+      return {
+        accepted: mission.voucher != null,
+        cumulativeAtomic: mission.voucher?.cumulativeAtomic ?? '0',
+        claimedAtomic: mission.claimedAtomic ?? '0',
+        fundedCents: mission.fundedCents ?? 0,
+        fundedNowCents: fundedNow,
+        checkpointTxHash: checkpointTxHash ?? null,
+        voucher: mission.voucher ?? null,
+      }
+    })
   }
 
   /** The app sends a cumulative voucher after a usage reading. Funds the next tranche when it covers one. */
@@ -1052,9 +1135,9 @@ export class MissionProductService {
   }
 
   /**
-   * The traveler ends the trip and the backend sends the close. The app adds
-   * the final voucher, signed by the session key: no wallet popup. That
-   * voucher is also what shows the request comes from the traveler.
+   * Ends the trip and the backend sends the close. The meter signs the final
+   * voucher from metered usage. A voucher in the request is accepted only when
+   * that same meter key signed it. The traveler cannot block this.
    */
   async settleMission(missionId: string, voucher?: SignedVoucher) {
     return this.locks.withChannelLock(missionId, async () => {
@@ -1071,8 +1154,13 @@ export class MissionProductService {
       }
       if (mission.paymentStatus !== 'paid') throw new Error('This mission has no confirmed deposit to close')
       if (!this.chain) throw unavailable('No operator key is configured, so the backend cannot close the escrow')
-      if (!voucher) throw new Error("Ending the trip needs its final voucher, signed by the trip's session key or wallet")
-      if (this.acceptVoucher(mission, voucher)) await this.repo.save(mission)
+      if (!this.meter) throw unavailable('The meter key is not configured, so this trip cannot be settled')
+      if (voucher) {
+        if (this.acceptVoucher(mission, voucher)) await this.repo.save(mission)
+      } else if (this.ensureMeterVoucher(mission, true)) {
+        await this.repo.save(mission)
+      }
+      if (!mission.voucher) throw new Error('The meter key is not configured, so this trip cannot be settled')
       return this.closeWithVoucher(mission)
     })
   }
@@ -1099,6 +1187,8 @@ export class MissionProductService {
         if (mission.status !== 'active' && mission.status !== 'paused') return result
 
         await this.readProviderUsage(mission)
+        if (this.ensureMeterVoucher(mission, false)) await this.repo.save(mission)
+        await this.checkpointIfDue(mission)
 
         const reason = autoCloseReason(mission, this.fundFlow, now, this.solanaDeposit(mission.id).timeoutSeconds)
         if (reason && mission.voucher) {

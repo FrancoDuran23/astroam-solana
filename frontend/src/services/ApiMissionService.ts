@@ -211,13 +211,24 @@ export class ApiMissionService {
     return handleResponse(res)
   }
 
-  /** The backend sends the close with the final session-key voucher. */
-  async settle(missionId: string, voucher: SignedVoucher): Promise<FinishResult> {
+  /** The meter signs the current usage and checkpoints it on the escrow. */
+  async attest(missionId: string): Promise<{ cumulativeAtomic: string; claimedAtomic: string }> {
+    const res = await fetch(`${this.baseUrl}/missions/${missionId}/attest`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      credentials: 'include',
+      body: '{}',
+    })
+    return handleResponse(res)
+  }
+
+  /** The backend sends the close. A voucher is optional and must be meter-signed. */
+  async settle(missionId: string, voucher?: SignedVoucher): Promise<FinishResult> {
     const res = await fetch(`${this.baseUrl}/missions/${missionId}/settle`, {
       method: 'POST',
       headers: getAuthHeaders(),
       credentials: 'include',
-      body: JSON.stringify({ voucher }),
+      body: JSON.stringify(voucher ? { voucher } : {}),
     })
     return handleResponse<FinishResult>(res)
   }

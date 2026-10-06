@@ -1,13 +1,15 @@
 // EscrowChain: what the backend does on Solana by itself, with its own key.
 //
-// The traveler signs one deposit. From then on AstroAm holds cumulative
-// vouchers signed by the traveler's session key, and this port turns them
-// into transactions: `claim` collects a tranche and leaves the escrow open,
-// `close` collects the rest and refunds the traveler, `sweep` moves collected
-// USDC to the treasury address (the Bridge liquidation address).
+// The traveler signs one deposit. From then on AstroAm's meter key signs
+// cumulative usage vouchers, and this port turns them into transactions:
+// `checkpoint` records the latest voucher without moving tokens, `claim`
+// collects a tranche and leaves the escrow open, `close` collects the rest
+// and refunds the traveler, `sweep` moves collected USDC to the treasury
+// address (the Bridge liquidation address).
 //
 // The operator key only pays fees and submits. It cannot name an amount: the
-// program pays what the voucher says, and only to the payee in its config.
+// program pays what the meter voucher says, and only to the payee in its config.
+// A traveler or session-key signature is rejected.
 
 import { existsSync, readFileSync } from "node:fs";
 import {
@@ -22,7 +24,7 @@ import {
   sendAndConfirmTransaction,
 } from "@solana/web3.js";
 import { SOLANA_RPC_URL, SOLANA_USDC_MINT, SPL_TOKEN_PROGRAM_ID } from "../shared/solana/constants.ts";
-import { claimData, closeData, decodeEscrow, type EscrowState, type SignedVoucher } from "../shared/solana/escrow.ts";
+import { checkpointData, claimData, closeData, decodeEscrow, type EscrowState, type SignedVoucher } from "../shared/solana/escrow.ts";
 import { isSolanaAddress } from "../shared/solana/base58.ts";
 import { closeVoucherMessage } from "../shared/solana/voucher.ts";
 
@@ -33,6 +35,8 @@ export interface EscrowChain {
   readonly operator: string;
   /** The escrow account as it is on-chain, or null when it does not exist. */
   readEscrow(escrowId: string): Promise<EscrowState | null>;
+  /** Records the voucher on the escrow. Moves no tokens and does not restart the timeout. */
+  checkpoint(input: { escrowId: string; voucher: SignedVoucher }): Promise<string>;
   /** Collects the unpaid part of the voucher. Returns the transaction signature. */
   claim(input: { escrowId: string; voucher: SignedVoucher }): Promise<string>;
   /** Collects the rest of the voucher and refunds the traveler. Returns the transaction signature. */
@@ -122,6 +126,29 @@ export class SolanaEscrowChain implements EscrowChain {
     const account = await this.connection.getAccountInfo(this.pdas(escrowId).escrow);
     if (!account || !account.owner.equals(this.programId)) return null;
     return decodeEscrow(account.data);
+  }
+
+  async checkpoint(input: { escrowId: string; voucher: SignedVoucher }): Promise<string> {
+    return this.send(this.checkpointInstructions(input));
+  }
+
+  /** The `checkpoint` transaction. The ed25519 check is the instruction immediately before it. */
+  checkpointInstructions(input: { escrowId: string; voucher: SignedVoucher }): TransactionInstruction[] {
+    const { config, escrow } = this.pdas(input.escrowId);
+    const operator = this.signer.publicKey;
+    return [
+      this.voucherCheck(input.escrowId, input.voucher),
+      new TransactionInstruction({
+        programId: this.programId,
+        keys: [
+          { pubkey: operator, isSigner: true, isWritable: true },
+          { pubkey: config, isSigner: false, isWritable: false },
+          { pubkey: escrow, isSigner: false, isWritable: true },
+          { pubkey: SYSVAR_INSTRUCTIONS_PUBKEY, isSigner: false, isWritable: false },
+        ],
+        data: Buffer.from(checkpointData(BigInt(input.voucher.cumulativeAtomic))),
+      }),
+    ];
   }
 
   async claim(input: { escrowId: string; voucher: SignedVoucher }): Promise<string> {

@@ -11,9 +11,12 @@ export const TAG_TOP_UP = 2;
 export const TAG_CLOSE = 3;
 export const TAG_REFUND = 4;
 export const TAG_CLAIM = 5;
+export const TAG_CHECKPOINT = 6;
 
-/** Same as `ESCROW_LEN` in the program. */
-export const ESCROW_LEN = 123;
+/** Same as `ESCROW_LEN` in the program. Includes `attested`. */
+export const ESCROW_LEN = 131;
+/** Session key and `claimed`, before `attested` was stored. */
+export const CLAIM_ESCROW_LEN = 123;
 /** Escrows opened by the first deployed program: no session key, no claims. */
 export const LEGACY_ESCROW_LEN = 83;
 
@@ -58,6 +61,11 @@ export function closeData(cumulative: bigint): Uint8Array {
   return concat(Uint8Array.of(TAG_CLOSE), u64(cumulative));
 }
 
+/** `checkpoint`: records the latest meter voucher and moves no tokens. */
+export function checkpointData(cumulative: bigint): Uint8Array {
+  return concat(Uint8Array.of(TAG_CHECKPOINT), u64(cumulative));
+}
+
 export type EscrowState = {
   traveler: string;
   /** Unix seconds of the deposit, last top-up or last claim. The refund timeout runs from here. */
@@ -69,6 +77,8 @@ export type EscrowState = {
   sessionKey: string | null;
   /** Already paid to AstroAm by `claim`. */
   claimed: bigint;
+  /** Latest meter voucher recorded on the escrow. The timeout pays this. */
+  attested: bigint;
 };
 
 /** Decodes an escrow account. Null when the bytes are not an escrow. */
@@ -76,8 +86,12 @@ export function decodeEscrow(data: Uint8Array): EscrowState | null {
   if (data.length < LEGACY_ESCROW_LEN || data[0] !== 1) return null;
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
   // A first-layout escrow reads as "no session key, nothing claimed", the way the program reads it.
-  const extended = data.length >= ESCROW_LEN;
-  const sessionKey = extended ? encodeBase58(data.subarray(83, 115)) : NO_SESSION_KEY;
+  const withClaims = data.length >= CLAIM_ESCROW_LEN;
+  const withAttested = data.length >= ESCROW_LEN;
+  const sessionKey = withClaims ? encodeBase58(data.subarray(83, 115)) : NO_SESSION_KEY;
+  const claimed = withClaims ? view.getBigUint64(115, true) : 0n;
+  // An escrow from before `attested` existed treats what was already claimed as attested.
+  const attested = withAttested ? view.getBigUint64(123, true) : claimed;
   return {
     traveler: encodeBase58(data.subarray(1, 33)),
     activeAt: Number(view.getBigInt64(33, true)),
@@ -85,17 +99,18 @@ export function decodeEscrow(data: Uint8Array): EscrowState | null {
     settled: data[49] === 1,
     escrowId: encodeBase58(data.subarray(51, 83)),
     sessionKey: sessionKey === NO_SESSION_KEY ? null : sessionKey,
-    claimed: extended ? view.getBigUint64(115, true) : 0n,
+    claimed,
+    attested: attested < claimed ? claimed : attested,
   };
 }
 
-/** A cumulative voucher as the app sends it: who signed, how much, and the ed25519 signature. */
+/** A cumulative voucher: who signed, how much, and the ed25519 signature. */
 export type SignedVoucher = {
-  /** Total USDC (6-decimal atomic units) the traveler authorizes AstroAm to collect. */
+  /** Total USDC (6-decimal atomic units) the meter authorizes AstroAm to collect. */
   cumulativeAtomic: string;
   /** base64 of the 64-byte ed25519 signature over the voucher message. */
   signature: string;
-  /** base58 public key that signed: the traveler wallet or the session key. */
+  /** base58 public key that signed. The program accepts only the meter key in its config. */
   signer: string;
 };
 

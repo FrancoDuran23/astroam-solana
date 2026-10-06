@@ -4,7 +4,7 @@
 // rules keep what it can lose at one tranche:
 //
 // - the eSIM wallet is never funded more than one tranche ahead of what the
-//   traveler's vouchers already cover, and never past what the deposit pays for;
+//   meter vouchers already cover, and never past what the deposit pays for;
 // - a voucher is collected with `claim` once it is worth a tranche, so a
 //   traveler who closes with an old voucher cannot take that part back.
 //

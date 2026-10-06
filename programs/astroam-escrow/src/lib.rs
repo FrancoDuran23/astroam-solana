@@ -3,16 +3,23 @@
 //!
 //! The traveler deposits USDC once (6 decimals) and may register a session
 //! key in that same transaction. Usage is metered off-chain. A cumulative
-//! ed25519 voucher, signed by the traveler or by that session key, authorizes
-//! what AstroAm has earned so far:
+//! ed25519 voucher, signed by the meter key stored in the program config,
+//! authorizes what AstroAm has earned so far. The traveler and the session
+//! key cannot sign it: a traveler who used 9 of 10 USDC must not be able to
+//! block settlement or take the 10 back.
 //!
+//! - `checkpoint` records the latest voucher on the escrow and moves nothing,
+//!   so a later timeout still knows what was used;
 //! - `claim` pays AstroAm the part of the voucher not paid yet and leaves the
 //!   escrow open, so a long trip is collected in tranches;
 //! - `close` pays the rest of the voucher and refunds what is left of the
 //!   deposit in the same transaction.
 //!
-//! If nobody closes, `refund` returns the unclaimed deposit `timeout_seconds`
-//! after the last top-up or claim. This program does not debit per megabyte.
+//! If nobody closes, `refund` pays the payee the attested amount that was not
+//! claimed yet and returns only the rest to the traveler, `timeout_seconds`
+//! after the last top-up or claim. A checkpoint does not move that deadline.
+//! The charged amount never exceeds the deposit. This program does not debit
+//! per megabyte.
 
 use solana_program::{
     account_info::{next_account_info, AccountInfo},
@@ -44,6 +51,7 @@ pub const TAG_TOP_UP: u8 = 2;
 pub const TAG_CLOSE: u8 = 3;
 pub const TAG_REFUND: u8 = 4;
 pub const TAG_CLAIM: u8 = 5;
+pub const TAG_CHECKPOINT: u8 = 6;
 
 pub const ERR_UNEXPECTED_DECIMALS: u32 = 1;
 pub const ERR_ZERO_AMOUNT: u32 = 2;
@@ -59,10 +67,15 @@ pub const ERR_MINT_MISMATCH: u32 = 11;
 pub const ERR_BAD_ACCOUNT: u32 = 12;
 pub const ERR_NOTHING_TO_CLAIM: u32 = 13;
 pub const ERR_BELOW_CLAIMED: u32 = 14;
+pub const ERR_BELOW_ATTESTED: u32 = 15;
 
-const CONFIG_LEN: usize = 74;
-/// 83 bytes of the first layout, then the session key (32) and `claimed` (8).
-pub const ESCROW_LEN: usize = 123;
+/// Payee, mint, timeout, bump, then the meter pubkey.
+const CONFIG_LEN: usize = 106;
+/// Session key, `claimed`, then `attested` (the latest meter voucher).
+pub const ESCROW_LEN: usize = 131;
+/// Session key and `claimed`, before `attested` was stored. They still close
+/// and refund: the attested amount is whatever was already claimed.
+pub const CLAIM_ESCROW_LEN: usize = 123;
 /// Escrows opened before session keys and claims. They still close and refund.
 pub const LEGACY_ESCROW_LEN: usize = 83;
 const USDC_DECIMALS: u8 = 6;
@@ -89,6 +102,7 @@ pub fn process_instruction(program_id: &Pubkey, accounts: &[AccountInfo], data: 
         TAG_CLOSE => close(program_id, accounts, data),
         TAG_REFUND => refund(program_id, accounts),
         TAG_CLAIM => claim(program_id, accounts, data),
+        TAG_CHECKPOINT => checkpoint(program_id, accounts, data),
         _ => Err(ProgramError::InvalidInstructionData),
     }
 }
@@ -103,7 +117,7 @@ fn initialize(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> Pro
     if !payer.is_signer {
         return Err(ProgramError::MissingRequiredSignature);
     }
-    let payee = read_initialize_payee(data, payer)?;
+    let (payee, meter) = read_initialize(data)?;
     let timeout = i64::from_le_bytes(data[1..9].try_into().unwrap());
     if timeout <= 0 {
         return Err(custom(ERR_ZERO_AMOUNT));
@@ -140,32 +154,33 @@ fn initialize(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> Pro
         &[payer.clone(), config.clone(), system_program.clone()],
         &[&[b"config", &[bump]]],
     )?;
-    write_config(config, &payee, mint_info.key, timeout, bump);
+    write_config(config, &payee, mint_info.key, timeout, bump, &meter);
     Ok(())
 }
 
-/// 9-byte form: the payer receives used USDC. 41-byte form: an explicit payee.
-fn read_initialize_payee(data: &[u8], payer: &AccountInfo) -> Result<Pubkey, ProgramError> {
-    if data.len() < 9 {
+/// 73 bytes: timeout, the payee that receives used USDC, and the meter key
+/// that signs vouchers. Both pubkeys are required; the payer is not a default.
+fn read_initialize(data: &[u8]) -> Result<(Pubkey, Pubkey), ProgramError> {
+    if data.len() != 1 + 8 + 32 + 32 {
         return Err(ProgramError::InvalidInstructionData);
     }
-    if data.len() == 1 + 8 {
-        return Ok(*payer.key);
-    }
-    if data.len() != 1 + 8 + 32 {
-        return Err(ProgramError::InvalidInstructionData);
-    }
-    let mut bytes = [0u8; 32];
-    bytes.copy_from_slice(&data[9..41]);
-    let payee = Pubkey::new_from_array(bytes);
-    if payee == Pubkey::default() {
+    let payee = read_pubkey(data, 9)?;
+    let meter = read_pubkey(data, 41)?;
+    if payee == Pubkey::default() || meter == Pubkey::default() {
         return Err(custom(ERR_BAD_ACCOUNT));
     }
-    Ok(payee)
+    Ok((payee, meter))
 }
 
-/// 41-byte form: only the traveler can sign vouchers. 73-byte form: the last
-/// 32 bytes are a session key that can sign them too.
+fn read_pubkey(data: &[u8], at: usize) -> Result<Pubkey, ProgramError> {
+    let mut bytes = [0u8; 32];
+    bytes.copy_from_slice(data.get(at..at + 32).ok_or(ProgramError::InvalidInstructionData)?);
+    Ok(Pubkey::new_from_array(bytes))
+}
+
+/// 41-byte form stores no session key. 73-byte form stores one in the last
+/// 32 bytes. The stored key does not authorize settlement: only the meter
+/// key in the config can sign a voucher.
 fn deposit(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
     if data.len() != 1 + 32 + 8 && data.len() != 1 + 32 + 8 + 32 {
         return Err(ProgramError::InvalidInstructionData);
@@ -334,7 +349,8 @@ fn claim(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramR
     }
     let cfg = load_config(program_id, config)?;
     let state = load_escrow(program_id, escrow)?;
-    // A first-layout escrow has no room to record a claim: it can only close or refund.
+    // Older layouts have no `attested` field. They can close and refund; they
+    // cannot record a claim, because a claim is also an attestation.
     if escrow.data_len() < ESCROW_LEN {
         return Err(custom(ERR_BAD_ACCOUNT));
     }
@@ -350,13 +366,7 @@ fn claim(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramR
     if *token_program.key != spl_token::id() {
         return Err(ProgramError::IncorrectProgramId);
     }
-    if *instructions.key != solana_program::sysvar::instructions::ID {
-        return Err(ProgramError::InvalidArgument);
-    }
-    let expected = close_voucher_message(program_id, &state.escrow_id, cumulative);
-    if !state.accepts(&voucher_signer(instructions, &expected)?) {
-        return Err(custom(ERR_BAD_VOUCHER));
-    }
+    require_meter(&cfg, instructions, &close_voucher_message(program_id, &state.escrow_id, cumulative))?;
     let (vault_pda, _) = Pubkey::find_program_address(&[b"vault", &state.escrow_id], program_id);
     if *vault.key != vault_pda {
         return Err(ProgramError::InvalidSeeds);
@@ -379,7 +389,50 @@ fn claim(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramR
         &[&signer_seeds],
     )?;
     write_claimed(escrow, cumulative);
+    // A claim is also an attestation: the timeout must not refund this part.
+    if cumulative > state.attested {
+        write_attested(escrow, cumulative);
+    }
     write_active_at(escrow, Clock::get()?.unix_timestamp);
+    Ok(())
+}
+
+/// Records the latest meter voucher and moves no tokens. It does not restart
+/// the refund timeout: re-attesting cannot freeze the traveler's remainder.
+fn checkpoint(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
+    if data.len() != 1 + 8 {
+        return Err(ProgramError::InvalidInstructionData);
+    }
+    let cumulative = u64::from_le_bytes(data[1..9].try_into().unwrap());
+
+    let accounts = &mut accounts.iter();
+    let payer = next_account_info(accounts)?;
+    let config = next_account_info(accounts)?;
+    let escrow = next_account_info(accounts)?;
+    let instructions = next_account_info(accounts)?;
+
+    if !payer.is_signer {
+        return Err(ProgramError::MissingRequiredSignature);
+    }
+    let cfg = load_config(program_id, config)?;
+    let state = load_escrow(program_id, escrow)?;
+    if escrow.data_len() < ESCROW_LEN {
+        return Err(custom(ERR_BAD_ACCOUNT));
+    }
+    if state.settled {
+        return Err(custom(ERR_ALREADY_SETTLED));
+    }
+    if cumulative > state.deposit {
+        return Err(custom(ERR_AMOUNT_EXCEEDS));
+    }
+    if cumulative < state.claimed {
+        return Err(custom(ERR_BELOW_CLAIMED));
+    }
+    if cumulative <= state.attested {
+        return Err(custom(ERR_NOTHING_TO_CLAIM));
+    }
+    require_meter(&cfg, instructions, &close_voucher_message(program_id, &state.escrow_id, cumulative))?;
+    write_attested(escrow, cumulative);
     Ok(())
 }
 
@@ -413,17 +466,14 @@ fn close(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramR
     if cumulative < state.claimed {
         return Err(custom(ERR_BELOW_CLAIMED));
     }
+    // A stale lower voucher must not undercut a checkpoint already on the escrow.
+    if cumulative < state.attested {
+        return Err(custom(ERR_BELOW_ATTESTED));
+    }
     if *token_program.key != spl_token::id() {
         return Err(ProgramError::IncorrectProgramId);
     }
-    if *instructions.key != solana_program::sysvar::instructions::ID {
-        return Err(ProgramError::InvalidArgument);
-    }
-
-    let expected = close_voucher_message(program_id, &state.escrow_id, cumulative);
-    if !state.accepts(&voucher_signer(instructions, &expected)?) {
-        return Err(custom(ERR_BAD_VOUCHER));
-    }
+    require_meter(&cfg, instructions, &close_voucher_message(program_id, &state.escrow_id, cumulative))?;
 
     let (vault_pda, _) = Pubkey::find_program_address(&[b"vault", &state.escrow_id], program_id);
     if *vault.key != vault_pda {
@@ -475,6 +525,7 @@ fn refund(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
     let config = next_account_info(accounts)?;
     let escrow = next_account_info(accounts)?;
     let vault = next_account_info(accounts)?;
+    let payee_token = next_account_info(accounts)?;
     let traveler_token = next_account_info(accounts)?;
     let token_program = next_account_info(accounts)?;
 
@@ -498,13 +549,31 @@ fn refund(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
     if *vault.key != vault_pda {
         return Err(ProgramError::InvalidSeeds);
     }
+    assert_token(payee_token, cfg.mint, cfg.payee)?;
     assert_token(traveler_token, cfg.mint, state.traveler)?;
 
-    let unclaimed = state.deposit - state.claimed;
-    if unclaimed > 0 {
-        let escrow_id = state.escrow_id;
-        let bump_seed = [state.bump];
-        let signer_seeds: [&[u8]; 3] = [b"escrow", escrow_id.as_ref(), &bump_seed];
+    // `attested` is at least `claimed`. The payee receives the part that was
+    // recorded but not collected yet; the traveler receives only the rest.
+    let pay = state.attested - state.claimed;
+    let give_back = state.deposit - state.attested;
+    let escrow_id = state.escrow_id;
+    let bump_seed = [state.bump];
+    let signer_seeds: [&[u8]; 3] = [b"escrow", escrow_id.as_ref(), &bump_seed];
+    if pay > 0 {
+        invoke_signed(
+            &spl_token::instruction::transfer(
+                &spl_token::id(),
+                vault.key,
+                payee_token.key,
+                escrow.key,
+                &[],
+                pay,
+            )?,
+            &[vault.clone(), payee_token.clone(), escrow.clone(), token_program.clone()],
+            &[&signer_seeds],
+        )?;
+    }
+    if give_back > 0 {
         invoke_signed(
             &spl_token::instruction::transfer(
                 &spl_token::id(),
@@ -512,7 +581,7 @@ fn refund(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
                 traveler_token.key,
                 escrow.key,
                 &[],
-                unclaimed,
+                give_back,
             )?,
             &[vault.clone(), traveler_token.clone(), escrow.clone(), token_program.clone()],
             &[&signer_seeds],
@@ -526,6 +595,8 @@ struct Config {
     payee: Pubkey,
     mint: Pubkey,
     timeout: i64,
+    /// Signs cumulative usage vouchers. Not the traveler and not a session key.
+    meter: Pubkey,
 }
 
 struct Escrow {
@@ -540,13 +611,9 @@ struct Escrow {
     session_key: Pubkey,
     /// Already paid to AstroAm by `claim`. Never above `deposit`.
     claimed: u64,
-}
-
-impl Escrow {
-    /// A voucher counts when the traveler or the registered session key signed it.
-    fn accepts(&self, signer: &Pubkey) -> bool {
-        *signer == self.traveler || (self.session_key != Pubkey::default() && *signer == self.session_key)
-    }
+    /// Latest cumulative voucher recorded by `checkpoint` or `claim`.
+    /// Never above `deposit`, never below `claimed`.
+    attested: u64,
 }
 
 fn load_config(program_id: &Pubkey, account: &AccountInfo) -> Result<Config, ProgramError> {
@@ -558,6 +625,7 @@ fn load_config(program_id: &Pubkey, account: &AccountInfo) -> Result<Config, Pro
         payee: Pubkey::new_from_array(raw[1..33].try_into().unwrap()),
         mint: Pubkey::new_from_array(raw[33..65].try_into().unwrap()),
         timeout: i64::from_le_bytes(raw[65..73].try_into().unwrap()),
+        meter: Pubkey::new_from_array(raw[74..106].try_into().unwrap()),
     })
 }
 
@@ -566,13 +634,21 @@ fn load_escrow(program_id: &Pubkey, account: &AccountInfo) -> Result<Escrow, Pro
         return Err(custom(ERR_ESCROW_MISSING));
     }
     let raw = account.data.borrow();
-    // A first-layout escrow has no session key and nothing claimed.
-    let extended = raw.len() >= ESCROW_LEN;
+    // A first-layout escrow has no session key and nothing claimed. One that
+    // predates `attested` treats the amount already claimed as attested, so a
+    // timeout cannot refund USDC the payee has already received.
+    let with_claims = raw.len() >= CLAIM_ESCROW_LEN;
+    let with_attested = raw.len() >= ESCROW_LEN;
     let mut escrow_id = [0u8; 32];
     escrow_id.copy_from_slice(&raw[51..83]);
     let (expected, bump) = Pubkey::find_program_address(&[b"escrow", &escrow_id], program_id);
     if *account.key != expected || raw[50] != bump {
         return Err(ProgramError::InvalidSeeds);
+    }
+    let claimed = if with_claims { u64::from_le_bytes(raw[115..123].try_into().unwrap()) } else { 0 };
+    let mut attested = if with_attested { u64::from_le_bytes(raw[123..131].try_into().unwrap()) } else { claimed };
+    if attested < claimed {
+        attested = claimed;
     }
     Ok(Escrow {
         traveler: Pubkey::new_from_array(raw[1..33].try_into().unwrap()),
@@ -581,8 +657,9 @@ fn load_escrow(program_id: &Pubkey, account: &AccountInfo) -> Result<Escrow, Pro
         settled: raw[49] == 1,
         bump,
         escrow_id,
-        session_key: if extended { Pubkey::new_from_array(raw[83..115].try_into().unwrap()) } else { Pubkey::default() },
-        claimed: if extended { u64::from_le_bytes(raw[115..123].try_into().unwrap()) } else { 0 },
+        session_key: if with_claims { Pubkey::new_from_array(raw[83..115].try_into().unwrap()) } else { Pubkey::default() },
+        claimed,
+        attested,
     })
 }
 
@@ -596,6 +673,10 @@ fn write_active_at(account: &AccountInfo, at: i64) {
 
 fn write_claimed(account: &AccountInfo, claimed: u64) {
     account.data.borrow_mut()[115..123].copy_from_slice(&claimed.to_le_bytes());
+}
+
+fn write_attested(account: &AccountInfo, attested: u64) {
+    account.data.borrow_mut()[123..131].copy_from_slice(&attested.to_le_bytes());
 }
 
 fn mark_settled(account: &AccountInfo) {
@@ -613,9 +694,20 @@ fn assert_token(account: &AccountInfo, mint: Pubkey, owner: Pubkey) -> ProgramRe
     Ok(())
 }
 
-/// The instruction immediately before `close` or `claim` must be an ed25519
-/// verify of the voucher. The precompile already checked the signature; this
-/// checks the signed message and returns who signed it.
+/// The voucher's ed25519 signer must be the meter key in the program config.
+fn require_meter(cfg: &Config, instructions: &AccountInfo, expected: &[u8]) -> ProgramResult {
+    if *instructions.key != solana_program::sysvar::instructions::ID {
+        return Err(ProgramError::InvalidArgument);
+    }
+    if voucher_signer(instructions, expected)? != cfg.meter {
+        return Err(custom(ERR_BAD_VOUCHER));
+    }
+    Ok(())
+}
+
+/// The instruction immediately before `close`, `claim` or `checkpoint` must be
+/// an ed25519 verify of the voucher. The precompile already checked the
+/// signature; this checks the signed message and returns who signed it.
 fn voucher_signer(instructions: &AccountInfo, expected: &[u8]) -> Result<Pubkey, ProgramError> {
     let index = load_current_index_checked(instructions)?;
     if index == 0 {
@@ -647,13 +739,14 @@ fn voucher_signer(instructions: &AccountInfo, expected: &[u8]) -> Result<Pubkey,
     Ok(Pubkey::new_from_array(raw))
 }
 
-fn write_config(config: &AccountInfo, payee: &Pubkey, mint: &Pubkey, timeout: i64, bump: u8) {
+fn write_config(config: &AccountInfo, payee: &Pubkey, mint: &Pubkey, timeout: i64, bump: u8, meter: &Pubkey) {
     let mut raw = config.data.borrow_mut();
     raw[0] = 2;
     raw[1..33].copy_from_slice(payee.as_ref());
     raw[33..65].copy_from_slice(mint.as_ref());
     raw[65..73].copy_from_slice(&timeout.to_le_bytes());
     raw[73] = bump;
+    raw[74..106].copy_from_slice(meter.as_ref());
 }
 
 #[cfg(test)]

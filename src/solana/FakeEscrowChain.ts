@@ -1,7 +1,8 @@
 // FakeEscrowChain: an in-memory EscrowChain for tests and demos. It keeps the
 // rules of programs/astroam-escrow that the backend relies on: a voucher must
-// be signed by the traveler or the registered session key, a claim only moves
-// what was not paid yet, and a close cannot go below what was claimed.
+// be signed by the meter key, a checkpoint records it without moving tokens,
+// a claim only moves what was not paid yet, and a close cannot go below what
+// was claimed or attested.
 
 import { encodeBase58 } from "../shared/solana/base58.ts";
 import { verifyVoucher, type EscrowState, type SignedVoucher } from "../shared/solana/escrow.ts";
@@ -17,11 +18,13 @@ export class FakeEscrowChain implements EscrowChain {
   readonly swept = new Map<string, bigint>();
   private readonly escrows = new Map<string, EscrowState>();
   private readonly programId: string;
+  private readonly meter: string;
   private readonly now: () => Date;
   private seq = 0;
 
-  constructor(programId: string, now: () => Date = () => new Date()) {
+  constructor(programId: string, meter: string, now: () => Date = () => new Date()) {
     this.programId = programId;
+    this.meter = meter;
     this.now = now;
   }
 
@@ -36,6 +39,7 @@ export class FakeEscrowChain implements EscrowChain {
       escrowId: input.escrowId,
       sessionKey: input.sessionKey ?? null,
       claimed: 0n,
+      attested: 0n,
     });
   }
 
@@ -55,8 +59,9 @@ export class FakeEscrowChain implements EscrowChain {
     if (state.settled) throw new Error("already settled (custom error 5)");
     const amount = BigInt(voucher.cumulativeAtomic);
     if (amount > state.deposit) throw new Error("amount exceeds the deposit (custom error 7)");
-    const authorized = voucher.signer === state.traveler || voucher.signer === state.sessionKey;
-    if (!authorized || !verifyVoucher(this.programId, escrowId, voucher)) throw new Error("bad voucher (custom error 8)");
+    if (voucher.signer !== this.meter || !verifyVoucher(this.programId, escrowId, voucher)) {
+      throw new Error("bad voucher (custom error 8)");
+    }
     return { state, amount };
   }
 
@@ -65,11 +70,20 @@ export class FakeEscrowChain implements EscrowChain {
     return state ? { ...state } : null;
   }
 
+  async checkpoint(input: { escrowId: string; voucher: SignedVoucher }): Promise<string> {
+    const { state, amount } = this.open(input.escrowId, input.voucher);
+    if (amount < state.claimed) throw new Error("below what was claimed (custom error 14)");
+    if (amount <= state.attested) throw new Error("nothing to claim (custom error 13)");
+    state.attested = amount;
+    return this.txHash();
+  }
+
   async claim(input: { escrowId: string; voucher: SignedVoucher }): Promise<string> {
     const { state, amount } = this.open(input.escrowId, input.voucher);
     if (amount <= state.claimed) throw new Error("nothing to claim (custom error 13)");
     this.payeeBalance += amount - state.claimed;
     state.claimed = amount;
+    if (amount > state.attested) state.attested = amount;
     state.activeAt = this.seconds();
     return this.txHash();
   }
@@ -77,10 +91,12 @@ export class FakeEscrowChain implements EscrowChain {
   async close(input: { escrowId: string; voucher: SignedVoucher; traveler: string }): Promise<string> {
     const { state, amount } = this.open(input.escrowId, input.voucher);
     if (amount < state.claimed) throw new Error("below what was claimed (custom error 14)");
+    if (amount < state.attested) throw new Error("below what was attested (custom error 15)");
     if (input.traveler !== state.traveler) throw new Error("bad account (custom error 12)");
     this.payeeBalance += amount - state.claimed;
     this.refunds.set(state.traveler, (this.refunds.get(state.traveler) ?? 0n) + state.deposit - amount);
     state.claimed = amount;
+    state.attested = amount;
     state.settled = true;
     return this.txHash();
   }

@@ -8,6 +8,7 @@ import { webhookEventPath, WebhookEventLog } from "../persistence/webhook-event.
 import { createPaymentRail } from "../rails/createPaymentRail.ts";
 import { bootProductService } from "../product/runtime/product-boot.ts";
 import { createEscrowChain, type EscrowChain } from "../solana/EscrowChain.ts";
+import { loadMeterSigner, type MeterSigner } from "../solana/meter-signer.ts";
 import { FUND_FLOW_INTERVAL_MS_DEFAULT, startFundFlowLoop } from "../jobs/fund-flow.ts";
 import { isSolanaAddress } from "../shared/solana/base58.ts";
 import { createServerApp } from "./app.ts";
@@ -34,7 +35,17 @@ try {
     detail: error instanceof Error ? error.message : String(error),
   });
 }
-const productService = bootProductService(env, rail, escrowChain);
+let meter: MeterSigner | undefined;
+try {
+  meter = loadMeterSigner(env);
+} catch (error) {
+  log({
+    level: "error",
+    msg: "meter key not loaded — usage vouchers cannot be signed",
+    detail: error instanceof Error ? error.message : String(error),
+  });
+}
+const productService = bootProductService(env, rail, escrowChain, meter);
 
 // Citrus webhooks: mounted when CONNECTIVITY_PROVIDER=citrus and
 // CITRUS_WEBHOOK_SECRET are set. Incomplete config degrades to "no webhooks"

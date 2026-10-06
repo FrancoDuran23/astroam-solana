@@ -19,7 +19,7 @@ export default function ActiveMissionPage() {
     loading,
     actionLoading,
     isDemoMode,
-    travelerSigns,
+    meterAttests,
     authorizedUsdc,
     retryBackend,
     simulate,
@@ -136,7 +136,7 @@ export default function ActiveMissionPage() {
                 <p className="text-sm text-textsecondary leading-relaxed">
                   Your eSIM is turned off, the final usage is settled in one transaction and the rest of your deposit goes back to your
                   wallet.{simulated && ' (Simulated.)'}
-                  {travelerSigns && caps?.escrowAutomation && ' Nothing to approve in your wallet.'}
+                  {meterAttests && caps?.escrowAutomation && ' Nothing to approve in your wallet.'}
                 </p>
                 <div className="flex gap-3 pt-2">
                   <button
@@ -277,11 +277,11 @@ export default function ActiveMissionPage() {
           </div>
         </div>
 
-        {travelerSigns && !isCompleted && (
+        {meterAttests && !isCompleted && (
           <div className="flex items-center justify-between gap-3 rounded-xl border border-online/30 bg-online/10 p-3">
             <span className="flex items-center gap-2 text-xs text-textsecondary">
               <span className="material-symbols-outlined text-base text-online">verified_user</span>
-              Authorized by this app
+              Attested by AstroAm's meter
             </span>
             <span className="font-mono text-sm font-bold text-online">{fmtUsdc(authorizedUsdc ?? 0, 2)} USDC</span>
           </div>
@@ -348,7 +348,7 @@ export default function ActiveMissionPage() {
       {!isCompleted && !isClosing && (
         <p className="mb-6 text-center font-mono text-[11px] text-textsecondary">
           “Use {DEMO_TRAFFIC_MB} MB” simulates a reading from the carrier.
-          {travelerSigns && ' The app then signs a voucher for the new total, with no wallet popup.'}
+          {meterAttests && " AstroAm's meter then attests the new total, with no wallet popup."}
         </p>
       )}
 
@@ -417,7 +417,7 @@ export default function ActiveMissionPage() {
             <TechRow label="ESCROW" value={mission.escrowId || caps?.solanaProgramId || 'NOT DEPLOYED'} />
             <TechRow label="USDC" value="6 decimals" />
             {mission.depositTxHash && <TechRow label="DEPOSIT TX" value={mission.depositTxHash} href={mission.depositExplorerUrl} />}
-            {travelerSigns && <TechRow label="VOUCHERS" value="Signed in this browser" />}
+            {meterAttests && <TechRow label="VOUCHERS" value="Signed by AstroAm's meter" />}
             <TechRow label="eSIM" value={mission.esimStatus.toUpperCase()} />
             <TechRow label="CARRIER" value={providerLabel} />
             <TechRow label="ICCID" value={iccidDisplay} />

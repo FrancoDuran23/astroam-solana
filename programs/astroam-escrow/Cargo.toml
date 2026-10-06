@@ -3,7 +3,7 @@ name = "astroam-escrow"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "Prepaid USDC escrow for AstroAm on Solana. One deposit, one close, one timeout refund."
+description = "Prepaid USDC escrow for AstroAm on Solana. Meter-signed close, checkpoint, and a timeout that pays the attested amount."
 
 [lib]
 crate-type = ["cdylib", "lib"]
