@@ -4,16 +4,16 @@ Demo para **Colosseum / Superteam Argentina** (cierra el 12/10/2026). El viajero
 
 La app base vino del build de Stellar ([FrancoDuran23/stellar_jujuy_dev@a19ed4d](https://github.com/FrancoDuran23/stellar_jujuy_dev/tree/a19ed4d)). El canal de Soroban no es el camino de pago de esta demo.
 
-## Equipo y roles
+## Team & roles
 
-Equipo de cuatro personas, en Jujuy, Argentina, trabajando full-time en remoto.
+Team of four, based in Jujuy, Argentina, working full-time remote.
 
-| Nombre | GitHub | Rol | Áreas principales |
+| Name | GitHub | Role | Main areas |
 |---|---|---|---|
-| Franco Agustín Durán (fundador) | [@FrancoDuran23](https://github.com/FrancoDuran23) | Programa de escrow, backend de pagos y frontend | Escrow de Solana (`programs/astroam-escrow`, deploy y flujo de fondos); canal de pagos y vales en Stellar; contrato y UI en Monad |
-| Ignacio Martín | [@ignaMartin22](https://github.com/ignaMartin22) | Conectividad (eSIM) y contratos de escrow | Citrus/Telnyx, consumo y webhooks en Stellar; `claim` del escrow y reembolsos en Monad. Pendiente del programa, a su cargo: cierre con clave de medidor y timeout que paga el monto atestiguado |
-| Daniel Palermo | [@DanielPalermoo](https://github.com/DanielPalermoo) | Backend y medición | Medidor de tráfico, adaptador Soroban y pasarela CosmoPay (build de Stellar) |
-| Joel | [@Joel010999](https://github.com/Joel010999) | Frontend | App del viajero, mobile, flujo de eSIM en la UI y API de producto (build de Stellar) |
+| Franco Agustín Durán (founder) | [@FrancoDuran23](https://github.com/FrancoDuran23) | Escrow program, payments backend, and frontend | Solana escrow (`programs/astroam-escrow`, deploy and fund flow); payments channel and vouchers on Stellar; contract and UI on Monad |
+| Ignacio Martín | [@ignaMartin22](https://github.com/ignaMartin22) | Connectivity (eSIM) and escrow contracts | Citrus/Telnyx, usage and webhooks on Stellar; escrow `claim` and refunds on Monad. Remaining program work, owned by him: meter-key close, and a timeout that pays the attested amount |
+| Daniel Palermo | [@DanielPalermoo](https://github.com/DanielPalermoo) | Backend and metering | Traffic meter, Soroban adapter, and CosmoPay gateway (Stellar build) |
+| Joel | [@Joel010999](https://github.com/Joel010999) | Frontend | Traveler app, mobile, eSIM flow in the UI, and product API (Stellar build) |
 
 ## Video demo
 
