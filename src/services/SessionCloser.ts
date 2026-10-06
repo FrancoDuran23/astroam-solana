@@ -18,9 +18,9 @@
 //     continuously for `stableWindowMs`.
 //  3. Final consumption = charged read AFTER settlement − baseline; request
 //     the LAST voucher for it through the trip's `IntegratedMeterService`
-//     (the same `processCumulative` the usage loop uses — R7/R9 step 4); the
-//     agent delivers it to the server, which records it as the highest
-//     accepted voucher.
+//     (the same `processCumulative` the usage loop uses — R7/R9 step 4).
+//     When `attestUsage` is set, that final figure is also checkpointed on
+//     the Solana escrow with AstroAm's meter key. The traveler does not sign.
 //  4. `closeChannel(channelId)`: the server settles and refunds the rest.
 //     The eSIM stays installed and goes `idle` (D8); `fundedMicroUsd` and
 //     `chargedBaselineMicroUsd` reset so the NEXT trip starts clean. The
@@ -55,6 +55,12 @@ export type SessionCloserOptions = {
   /** The server's existing channel close port, consumed verbatim (R9 step 5,
    * spec §12.7). Never called with a channelId the trip never had. */
   closeChannel: (channelId: string) => Promise<CloseOutcome>;
+  /**
+   * Records the final usage on the escrow (a meter-signed checkpoint) before
+   * the channel is closed. The traveler does not sign. A failure leaves the
+   * walk on this step so the next run retries it.
+   */
+  attestUsage?: (input: { iccid: string; equivalentBytes: bigint }) => Promise<void>;
   markupBps: number;
   usdcUsdRateBps: number;
   pricePerMbRaw: bigint;
@@ -77,6 +83,7 @@ export class SessionCloser {
   private readonly esimStore: EsimStore;
   private readonly meter: IntegratedMeterService;
   private readonly closeChannel: (channelId: string) => Promise<CloseOutcome>;
+  private readonly attestUsage: ((input: { iccid: string; equivalentBytes: bigint }) => Promise<void>) | undefined;
   private readonly markupBps: number;
   private readonly usdcUsdRateBps: number;
   private readonly pricePerMbRaw: bigint;
@@ -92,6 +99,7 @@ export class SessionCloser {
     this.esimStore = options.esimStore;
     this.meter = options.meter;
     this.closeChannel = options.closeChannel;
+    this.attestUsage = options.attestUsage;
     this.markupBps = options.markupBps;
     this.usdcUsdRateBps = options.usdcUsdRateBps;
     this.pricePerMbRaw = options.pricePerMbRaw;
@@ -251,6 +259,19 @@ export class SessionCloser {
     const chargedSession = usage.chargedMicroUsd - row.chargedBaselineMicroUsd;
     const finalCharged = chargedSession < 0n ? 0n : chargedSession;
     const finalEqBytes = equivalentBytes(finalCharged, this.markupBps, this.usdcUsdRateBps, this.pricePerMbRaw);
+
+    if (this.attestUsage) {
+      try {
+        await this.attestUsage({ iccid, equivalentBytes: finalEqBytes });
+      } catch (error) {
+        this.logger({ level: "warn", reason: "escrow_checkpoint_failed", iccid, detail: messageOf(error) });
+        return {
+          step: "ultimo_vale_firmado",
+          voucherKind: "unavailable",
+          detail: `checkpoint del escrow falló, se reintenta: ${messageOf(error)}`,
+        };
+      }
+    }
 
     let voucher: VoucherRequestResult;
     try {

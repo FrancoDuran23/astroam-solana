@@ -11,41 +11,19 @@ import type {
   PaymentConfirmationResult,
   PaymentIntentInfo,
   SignedVoucher,
-  SolanaClosePlan,
   UsageEvent,
   WizardData,
 } from '../types/mission'
 
-/** A voucher signed by this browser's session key, in both shapes its users need. */
-type SessionVoucher = { voucher: SignedVoucher; signature: Uint8Array }
-
-/**
- * Signs the cumulative voucher for `cumulativeAtomic` with the trip's session
- * key. Null when this browser does not hold the key the escrow registered.
- * The message is built here, not taken from the server, and never goes past
- * the deposit.
- */
-async function signSessionVoucher(
-  missionId: string,
-  registeredKey: string | null | undefined,
-  plan: { programId: string | null; escrowId: string; depositAtomic: string },
-  cumulativeAtomic: string,
-): Promise<SessionVoucher | null> {
-  if (!registeredKey || !plan.programId) return null
-  if (BigInt(cumulativeAtomic) > BigInt(plan.depositAtomic)) return null
-  const [{ sessionPublicKey, signWithSessionKey }, { voucherMessage }, { Buffer }] = await Promise.all([
-    import('../chain/session'),
-    import('../chain/solana'),
-    import('buffer'),
-  ])
-  if (sessionPublicKey(missionId) !== registeredKey) return null
-  const message = voucherMessage(plan.programId, plan.escrowId, BigInt(cumulativeAtomic))
-  const signed = await signWithSessionKey(missionId, Buffer.from(message).toString('base64'))
-  if (!signed) return null
-  return {
-    voucher: { cumulativeAtomic, signature: Buffer.from(signed.signature).toString('base64'), signer: signed.signer },
-    signature: signed.signature,
+/** Bytes of a meter-signed voucher the wallet can attach to a close. */
+async function meterSignature(voucher: SignedVoucher | null | undefined): Promise<{ signature: Uint8Array; signer: string }> {
+  if (!voucher?.signature || !voucher.signer) {
+    throw new Error("This close needs a voucher signed by AstroAm's meter key.")
   }
+  const { Buffer } = await import('buffer')
+  const signature = Uint8Array.from(Buffer.from(voucher.signature, 'base64'))
+  if (signature.length !== 64) throw new Error("This close needs a voucher signed by AstroAm's meter key.")
+  return { signature, signer: voucher.signer }
 }
 
 export function useMission() {
@@ -59,23 +37,17 @@ export function useMission() {
   const [signedAtomic, setSignedAtomic] = useState<string | null>(null)
   const isDemoMode = envConfig.mode === 'demo'
 
-  // After a usage reading the app signs a voucher for the new total with the
-  // session key and hands it to AstroAm: no wallet popup. Without a session
-  // key (older escrow, or another browser) this does nothing and the wallet
-  // signs once at the end.
+  // After a usage reading the backend's meter key attests the new total and
+  // checkpoints it. This browser does not sign the amount.
   const pushVoucher = useCallback(async (missionId: string): Promise<void> => {
+    if (!caps?.escrowMeter) return
     try {
-      const request = await apiMissionService.voucherRequest(missionId)
-      setSignedAtomic(request.signedAtomic)
-      if (BigInt(request.cumulativeAtomic) <= BigInt(request.signedAtomic)) return
-      const signed = await signSessionVoucher(missionId, request.sessionKey, request, request.cumulativeAtomic)
-      if (!signed) return
-      const accepted = await apiMissionService.submitVoucher(missionId, signed.voucher)
-      setSignedAtomic(accepted.cumulativeAtomic)
+      const attested = await apiMissionService.attest(missionId)
+      setSignedAtomic(attested.cumulativeAtomic)
     } catch {
-      // The next reading signs the new total; a missed voucher is not fatal.
+      // The next reading attests the new total; a missed checkpoint is not fatal.
     }
-  }, [])
+  }, [caps?.escrowMeter])
 
   const loadBackendState = useCallback(async () => {
     setLoading(true)
@@ -338,19 +310,18 @@ export function useMission() {
       const refunded = Number(quoted.solana?.refundUsdc ?? quoted.refundedUsdc ?? mission.balanceUsdc ?? 0)
       if (quoted.status === 'awaiting_close' && quoted.solana?.deployed && quoted.solana.messageBase64) {
         const before = await walletUsdc(mission.id)
-        const session = await sessionVoucherFor(mission, quoted.solana)
         let confirmed: FinishResult | null = null
-        if (session && caps?.escrowAutomation) {
-          // AstroAm sends the close with the session voucher: nothing to approve in the wallet.
+        if (caps?.escrowAutomation) {
+          // AstroAm sends the close with its meter voucher: nothing to approve in the wallet.
           try {
-            confirmed = await apiMissionService.settle(mission.id, session.voucher)
+            confirmed = await apiMissionService.settle(mission.id)
           } catch {
-            // The backend could not send it: the wallet sends the same close below.
+            // The backend could not send it: the wallet submits the same close below.
           }
         }
         if (!confirmed) {
           const { closeEscrow } = await import('../chain/solana')
-          const txHash = await closeEscrow(quoted.solana, session ? { signature: session.signature, signer: session.voucher.signer } : undefined)
+          const txHash = await closeEscrow(quoted.solana, await meterSignature(quoted.meterVoucher))
           confirmed = await apiMissionService.confirmClose(mission.id, txHash, 'close')
         }
         const fresh = await apiMissionService.getMission(mission.id)
@@ -372,18 +343,7 @@ export function useMission() {
     }
   }
 
-  /** The close's voucher signed by the session key, when the escrow registered this browser's key. */
-  const sessionVoucherFor = (current: Mission, plan: SolanaClosePlan): Promise<SessionVoucher | null> =>
-    plan.sessionKeys
-      ? signSessionVoucher(
-          current.id,
-          current.sessionKey,
-          { programId: plan.programId, escrowId: plan.escrowId, depositAtomic: plan.amount },
-          plan.cumulativeAmount,
-        )
-      : Promise.resolve(null)
-
-  /** Gives the whole deposit back for a trip that was paid but never activated. */
+  /** Gives the unused deposit back for a trip that was paid but never activated. */
   const cancel = async (): Promise<CancelResult> => {
     if (!mission) throw new Error('No active mission')
     setActionLoading(true)
@@ -393,10 +353,14 @@ export function useMission() {
         if (!quoted.solana?.deployed || !quoted.solana.messageBase64) {
           throw new Error('The escrow is not deployed, so the wallet cannot refund it yet.')
         }
-        const { closeEscrow } = await import('../chain/solana')
-        const session = await sessionVoucherFor(mission, quoted.solana)
-        const txHash = await closeEscrow(quoted.solana, session ? { signature: session.signature, signer: session.voucher.signer } : undefined)
-        const confirmed = await apiMissionService.confirmClose(mission.id, txHash, 'close')
+        let confirmed: FinishResult
+        if (caps.escrowAutomation) {
+          confirmed = await apiMissionService.settle(mission.id)
+        } else {
+          const { closeEscrow } = await import('../chain/solana')
+          const txHash = await closeEscrow(quoted.solana, await meterSignature(quoted.meterVoucher))
+          confirmed = await apiMissionService.confirmClose(mission.id, txHash, 'close')
+        }
         apiMissionService.clearSavedMissionId()
         setMission(null)
         return {
@@ -417,7 +381,7 @@ export function useMission() {
 
   const refundDeposit = async (): Promise<FinishResult> => {
     if (!mission) throw new Error('No active mission')
-    if (!mission.escrowId || !caps?.solanaProgramId || !caps.solanaRpcUrl || !caps.solanaUsdcMint) {
+    if (!mission.escrowId || !caps?.solanaProgramId || !caps.solanaRpcUrl || !caps.solanaUsdcMint || !caps.solanaPayee) {
       throw new Error('The escrow is not deployed. Run npm run solana:deploy and set SOLANA_PROGRAM_ID.')
     }
     setActionLoading(true)
@@ -429,16 +393,18 @@ export function useMission() {
         programId: caps.solanaProgramId,
         usdcMint: caps.solanaUsdcMint,
         escrowId: mission.escrowId,
+        payee: caps.solanaPayee,
       })
       const confirmed = await apiMissionService.confirmClose(mission.id, txHash, 'timeout_refund')
       const fresh = await apiMissionService.getMission(mission.id)
       setMission(fresh)
-      const refunded = confirmed.refundedUsdc ?? mission.budgetUsdc
+      const settled = confirmed.settledUsdc ?? 0
+      const refunded = confirmed.refundedUsdc ?? 0
       const after = before ? await walletUsdcAfter(mission.id, before.usdc, refunded) : null
       return {
         ...confirmed,
         status: 'completed',
-        settledUsdc: 0,
+        settledUsdc: settled,
         refundedUsdc: refunded,
         wallet: before && after ? { address: before.address, beforeUsdc: before.usdc, afterUsdc: after.usdc } : undefined,
       }
@@ -447,8 +413,8 @@ export function useMission() {
     }
   }
 
-  // The escrow registered a session key: the app signs usage vouchers itself.
-  const travelerSigns = Boolean(caps?.escrowSessionKeys && mission?.sessionKey)
+  // The backend holds the meter key, so usage is attested without this browser signing.
+  const meterAttests = Boolean(caps?.escrowMeter)
   const authorizedAtomic = signedAtomic ?? mission?.voucher?.cumulativeAtomic ?? null
   const authorizedUsdc = authorizedAtomic === null ? null : Number(authorizedAtomic) / 1e6
 
@@ -498,7 +464,7 @@ export function useMission() {
     actionLoading,
     backendError,
     isDemoMode,
-    travelerSigns,
+    meterAttests,
     authorizedUsdc,
     refundDeposit,
     retryBackend: loadBackendState,

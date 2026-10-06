@@ -235,7 +235,16 @@ export function createProductRouter(service: MissionProductService): Router {
     }
   })
 
-  // Settle: the backend sends the close with the session-key voucher. No wallet popup.
+  // The meter signs the current usage and checkpoints it. The traveler does not.
+  router.post('/missions/:id/attest', requireAuthIfNeeded, async (req: Request, res: Response) => {
+    try {
+      res.json(await service.attestMission(getId(req)))
+    } catch (err) {
+      res.status(400).json({ error: 'attest_failed', message: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  // Settle: the backend sends the close with a meter-signed voucher. No wallet popup.
   router.post('/missions/:id/settle', requireAuthIfNeeded, async (req: Request, res: Response) => {
     try {
       const parsed = settleSchema.parse(req.body)

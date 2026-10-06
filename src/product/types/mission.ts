@@ -76,7 +76,7 @@ export type ProductMission = {
   depositAtomic?: string
   /** Traveler wallet that signed the deposit (base58). */
   travelerAddress?: string
-  /** Session key the deposit registered in the escrow (base58). It signs vouchers without a wallet popup. */
+  /** Session key the deposit registered (base58). It does not authorize settlement. */
   sessionKey?: string
   /** true once the backend read this deposit from the escrow account on-chain. */
   depositVerified?: boolean
@@ -146,9 +146,13 @@ export type Capabilities = {
   solanaProgramId: string | null
   solanaPayee: string | null
   solanaTimeoutSeconds: number
-  /** The deployed program takes a session key at deposit and partial claims. */
+  /** Meter pubkey from `SOLANA_METER_PUBKEY`, or null until a deploy prints one. */
+  solanaMeter: string | null
+  /** The deposit may register a session key. That key does not sign vouchers. */
   escrowSessionKeys: boolean
-  /** The backend has an operator key: it claims and closes with the session vouchers. */
+  /** The backend holds `SOLANA_METER_KEYPAIR` and can sign usage vouchers. */
+  escrowMeter: boolean
+  /** Operator key plus meter key: the backend checkpoints, claims and closes itself. */
   escrowAutomation: boolean
   /** base58 address of that operator key. Null without automation. */
   escrowOperator: string | null

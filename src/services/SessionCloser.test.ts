@@ -16,6 +16,7 @@ import { IntegratedMeterService } from "../meter/meter-service.ts";
 import { createInMemoryVoucherPort } from "../meter/voucher-port.ts";
 import { createConnectivitySession } from "../models/ConnectivitySession.ts";
 import { pricePerMibFromPerMbRaw } from "../shared/money.ts";
+import { equivalentBytes } from "../shared/usage-math.ts";
 import type { CloseOutcome } from "../rails/PaymentRail.ts";
 import { CitrusWebhookHandler } from "./CitrusWebhookHandler.ts";
 import { WebhookEventLog } from "../persistence/webhook-event.ts";
@@ -41,6 +42,7 @@ async function buildHarness(over: {
   closeOutcome?: CloseOutcome;
   stableWindowMs?: number;
   row?: Partial<EsimRecordRow>;
+  attestUsage?: (input: { iccid: string; equivalentBytes: bigint }) => Promise<void>;
 } = {}): Promise<Harness> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "session-closer-"));
   let clock = 1_700_000_000_000;
@@ -103,6 +105,7 @@ async function buildHarness(over: {
     usdcUsdRateBps: USDC_USD_RATE_BPS,
     pricePerMbRaw: PRICE_PER_MB_RAW,
     stableWindowMs: over.stableWindowMs ?? 300_000,
+    attestUsage: over.attestUsage,
     logger: () => {},
     now,
   });
@@ -261,4 +264,52 @@ test("un cierre de canal fallido mantiene el paso canal_cerrado para que el oper
   const done = await h.closer.runOnce(h.iccid);
   assert.equal(done.step, "done");
   assert.equal(h.store.get(h.iccid)!.status, "idle");
+});
+
+test("el vale final atestigua el consumo en el escrow antes de cerrar el canal", async () => {
+  const calls: { iccid: string; equivalentBytes: bigint }[] = [];
+  const h = await buildHarness({
+    stableWindowMs: 0,
+    attestUsage: async (input) => {
+      calls.push(input);
+    },
+  });
+  await h.closer.beginClose(h.iccid);
+  await h.closer.runOnce(h.iccid);
+  h.provider.settleDefund(h.iccid);
+  h.provider.setChargedUsd(h.iccid, 2_600_000n);
+
+  const attested = await h.closer.runOnce(h.iccid);
+  assert.equal(attested.step, "canal_cerrado");
+  assert.equal(h.closeCalls(), 0);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]!.iccid, h.iccid);
+  const charged = 2_600_000n - 1_000_000n;
+  assert.equal(
+    calls[0]!.equivalentBytes,
+    equivalentBytes(charged, MARKUP_BPS, USDC_USD_RATE_BPS, PRICE_PER_MB_RAW),
+  );
+});
+
+test("si el checkpoint del escrow falla, el cierre no avanza y se reintenta", async () => {
+  let fail = true;
+  const h = await buildHarness({
+    stableWindowMs: 0,
+    attestUsage: async () => {
+      if (fail) throw new Error("rpc down");
+    },
+  });
+  await h.closer.beginClose(h.iccid);
+  await h.closer.runOnce(h.iccid);
+  h.provider.settleDefund(h.iccid);
+
+  const stuck = await h.closer.runOnce(h.iccid);
+  assert.equal(stuck.step, "ultimo_vale_firmado");
+  assert.equal(h.store.get(h.iccid)!.closing!.step, "ultimo_vale_firmado");
+  assert.equal(h.closeCalls(), 0);
+
+  fail = false;
+  const retried = await h.closer.runOnce(h.iccid);
+  assert.equal(retried.step, "canal_cerrado");
+  assert.equal(h.closeCalls(), 0);
 });

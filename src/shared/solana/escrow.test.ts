@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { generateKeyPairSync, sign } from "node:crypto";
 import { encodeBase58 } from "./base58.ts";
-import { ESCROW_LEN, claimData, closeData, decodeEscrow, depositData, verifyVoucher } from "./escrow.ts";
+import { ESCROW_LEN, checkpointData, claimData, closeData, decodeEscrow, depositData, verifyVoucher } from "./escrow.ts";
 import { closeVoucherMessage } from "./voucher.ts";
 
 const hex = (bytes: Uint8Array) => Buffer.from(bytes).toString("hex");
@@ -14,12 +14,14 @@ const DEPOSIT_HEX = `01${"22".repeat(32)}404b4c0000000000`;
 const DEPOSIT_WITH_SESSION_HEX = `${DEPOSIT_HEX}${"55".repeat(32)}`;
 const CLAIM_HEX = "0520a1070000000000";
 const CLOSE_HEX = "0320a1070000000000";
+const CHECKPOINT_HEX = "0620a1070000000000";
 
 test("instruction data matches the fixture shared with the program tests", () => {
   assert.equal(hex(depositData(key(0x22), 5_000_000n)), DEPOSIT_HEX);
   assert.equal(hex(depositData(key(0x22), 5_000_000n, key(0x55))), DEPOSIT_WITH_SESSION_HEX);
   assert.equal(hex(claimData(500_000n)), CLAIM_HEX);
   assert.equal(hex(closeData(500_000n)), CLOSE_HEX);
+  assert.equal(hex(checkpointData(500_000n)), CHECKPOINT_HEX);
 });
 
 test("an escrow account decodes to the traveler, deposit, session key and claimed amount", () => {
@@ -33,6 +35,7 @@ test("an escrow account decodes to the traveler, deposit, session key and claime
   raw.fill(0x22, 51, 83);
   raw.fill(0x55, 83, 115);
   view.setBigUint64(115, 2_000_000n, true);
+  view.setBigUint64(123, 4_000_000n, true);
 
   assert.deepEqual(decodeEscrow(raw), {
     traveler: key(0x44),
@@ -42,15 +45,21 @@ test("an escrow account decodes to the traveler, deposit, session key and claime
     escrowId: key(0x22),
     sessionKey: key(0x55),
     claimed: 2_000_000n,
+    attested: 4_000_000n,
   });
 
   raw.fill(0, 83, 115);
   assert.equal(decodeEscrow(raw)?.sessionKey, null);
+  // Before `attested` was stored, the timeout treats what was claimed as attested.
+  const claimedOnly = decodeEscrow(raw.subarray(0, 123));
+  assert.equal(claimedOnly?.claimed, 2_000_000n);
+  assert.equal(claimedOnly?.attested, 2_000_000n);
   // The first layout was 83 bytes: no session key and nothing claimed.
   const legacy = decodeEscrow(raw.subarray(0, 83));
   assert.equal(legacy?.deposit, 10_000_000n);
   assert.equal(legacy?.sessionKey, null);
   assert.equal(legacy?.claimed, 0n);
+  assert.equal(legacy?.attested, 0n);
   assert.equal(decodeEscrow(raw.subarray(0, 82)), null);
 });
 

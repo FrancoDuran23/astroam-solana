@@ -7,11 +7,13 @@ import { FileMissionRepository } from '../persistence/MissionRepository.ts'
 import { MissionProductService } from '../services/MissionProductService.ts'
 import { fundFlowConfigFromEnv } from '../services/fund-flow.ts'
 import type { EscrowChain } from '../../solana/EscrowChain.ts'
+import { loadMeterSigner, type MeterSigner } from '../../solana/meter-signer.ts'
 
 export function bootProductService(
   env: Record<string, string | undefined> = process.env,
   rail: PaymentRail = createPaymentRail(env),
   escrowChain?: EscrowChain,
+  meter: MeterSigner | undefined = loadMeterSigner(env),
 ): MissionProductService {
   const repo = new FileMissionRepository(env.DATA_DIR)
 
@@ -40,6 +42,7 @@ export function bootProductService(
     rail,
     hasCitrusReal,
     escrowChain,
+    meter,
     fundFlow: fundFlowConfigFromEnv(env),
   })
 }

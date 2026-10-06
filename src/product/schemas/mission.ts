@@ -34,7 +34,7 @@ export const voucherSchema = z.object({
 })
 
 export const settleSchema = z.object({
-  voucher: voucherSchema,
+  voucher: voucherSchema.optional(),
 })
 
 export const closeConfirmationSchema = z.object({

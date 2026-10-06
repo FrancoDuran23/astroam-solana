@@ -2,9 +2,9 @@
 //
 // Phantom or Solflare (window.phantom.solana / window.solflare). The traveler
 // deposits Circle devnet USDC once. Usage stays off-chain. One close pays
-// AstroAm the used amount and refunds the rest; its voucher is signed by the
-// wallet, or by the session key the deposit registered (./session.ts), which
-// needs no popup. A timeout refund returns what AstroAm did not collect.
+// AstroAm the attested amount and refunds the rest. The voucher is signed by
+// AstroAm's meter key; this wallet only submits the transaction. A timeout
+// refund pays that attested amount to the payee and returns the rest.
 
 import { Buffer } from 'buffer'
 import {
@@ -171,14 +171,14 @@ export async function sendDeposit(
 
   onProgress?.('depositing')
   const { config, escrow, vault } = pdas(programId, plan.escrowId)
-  // The deposit registers the trip's session key, so later vouchers need no wallet popup.
+  // The deposit may register a session key. It does not sign vouchers.
   let sessionKey: Buffer = Buffer.alloc(0)
   if (method === 'deposit' && plan.sessionKeys) {
     try {
       const { createSessionKey } = await import('./session')
       sessionKey = new PublicKey(await createSessionKey(missionId)).toBuffer()
     } catch {
-      // No Ed25519 in this browser's WebCrypto: deposit without a session key; the wallet signs the close.
+      // No Ed25519 in this browser's WebCrypto: deposit without a session key.
     }
   }
   const data =
@@ -228,18 +228,16 @@ export async function readTravelerUsdc(missionId: string): Promise<{ address: st
   return { address: record.address, usdc: Number(balance.value.uiAmount ?? 0) }
 }
 
-function signatureBytes(signed: { signature: Uint8Array } | Uint8Array): Uint8Array {
-  const raw = signed instanceof Uint8Array ? signed : signed.signature
-  if (raw.length !== 64) throw new Error('The wallet did not return a 64-byte ed25519 signature.')
-  return raw
-}
-
 /**
- * Sends the close from the wallet. With `voucher` (signed by the session key)
- * the wallet only approves the transaction; without it, it signs the voucher too.
+ * Sends the close from the wallet. `voucher` must already be signed by
+ * AstroAm's meter key. The wallet approves the transaction and does not sign
+ * the amount.
  */
-export async function closeEscrow(plan: SolanaClosePlan, voucher?: { signature: Uint8Array; signer: string }): Promise<string> {
+export async function closeEscrow(plan: SolanaClosePlan, voucher: { signature: Uint8Array; signer: string }): Promise<string> {
   const { programId, payee } = requireDeployed(plan)
+  if (!voucher?.signature || !voucher.signer) {
+    throw new Error("This close needs a voucher signed by AstroAm's meter key.")
+  }
   if (!plan.messageBase64) {
     throw new Error('The escrow is not deployed, so there is no voucher to sign.')
   }
@@ -248,8 +246,8 @@ export async function closeEscrow(plan: SolanaClosePlan, voucher?: { signature: 
   const traveler = wallet.publicKey
   if (!traveler) throw new Error('The wallet did not return an account.')
   const message = Uint8Array.from(Buffer.from(plan.messageBase64, 'base64'))
-  const signature = voucher ? voucher.signature : signatureBytes(await wallet.signMessage(message, 'utf8'))
-  const voucherSigner = voucher ? new PublicKey(voucher.signer) : traveler
+  const signature = voucher.signature
+  const voucherSigner = new PublicKey(voucher.signer)
   const mint = new PublicKey(plan.usdcMint)
   const travelerAta = await getAssociatedTokenAddress(mint, traveler)
   const payeeAta = await getAssociatedTokenAddress(mint, payee)
@@ -284,6 +282,7 @@ export async function refundEscrow(plan: {
   programId: string
   usdcMint: string
   escrowId: string
+  payee: string
 }): Promise<string> {
   const programId = new PublicKey(plan.programId)
   const wallet = provider()
@@ -291,9 +290,12 @@ export async function refundEscrow(plan: {
   const traveler = wallet.publicKey
   if (!traveler) throw new Error('The wallet did not return an account.')
   const mint = new PublicKey(plan.usdcMint)
+  const payee = new PublicKey(plan.payee)
   const travelerAta = await getAssociatedTokenAddress(mint, traveler)
+  const payeeAta = await getAssociatedTokenAddress(mint, payee)
   const { config, escrow, vault } = pdas(programId, plan.escrowId)
   const tx = new Transaction().add(
+    createAssociatedTokenAccountIdempotentInstruction(traveler, payeeAta, payee, mint),
     new TransactionInstruction({
       programId,
       keys: [
@@ -301,6 +303,7 @@ export async function refundEscrow(plan: {
         { pubkey: config, isSigner: false, isWritable: false },
         { pubkey: escrow, isSigner: false, isWritable: true },
         { pubkey: vault, isSigner: false, isWritable: true },
+        { pubkey: payeeAta, isSigner: false, isWritable: true },
         { pubkey: travelerAta, isSigner: false, isWritable: true },
         { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
       ],

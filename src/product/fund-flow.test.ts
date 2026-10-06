@@ -12,6 +12,7 @@ import type { ProductMission } from "./types/mission.ts";
 import { FakeProvider } from "../providers/connectivity/FakeProvider.ts";
 import { FakeRail } from "../rails/FakeRail.ts";
 import { FakeEscrowChain } from "../solana/FakeEscrowChain.ts";
+import type { MeterSigner } from "../solana/meter-signer.ts";
 import { runFundFlowOnce } from "../jobs/fund-flow.ts";
 import { decodeBase58, encodeBase58 } from "../shared/solana/base58.ts";
 import { closeVoucherMessage } from "../shared/solana/voucher.ts";
@@ -62,6 +63,16 @@ let service: MissionProductService;
 let provider: FakeProvider;
 let chain: FakeEscrowChain;
 let clock: Date;
+let meter: Key;
+
+function asMeter(key: Key): MeterSigner {
+  return {
+    publicKey: key.address,
+    sign(_programId, escrowId, cumulativeAtomic) {
+      return signVoucher(key, escrowId, cumulativeAtomic);
+    },
+  };
+}
 
 before(() => {
   process.env.ENABLE_DEMO_TRAFFIC = "true";
@@ -80,13 +91,15 @@ after(() => {
 
 beforeEach(() => {
   clock = new Date("2026-10-05T12:00:00Z");
+  meter = newKey();
   provider = new FakeProvider();
-  chain = new FakeEscrowChain(PROGRAM, () => clock);
+  chain = new FakeEscrowChain(PROGRAM, meter.address, () => clock);
   service = new MissionProductService({
     repo: new MemoryRepo(),
     connectivity: provider,
     rail: new FakeRail(),
     escrowChain: chain,
+    meter: asMeter(meter),
     depositReadRetryMs: 1,
     logger: () => {},
   });
@@ -118,7 +131,7 @@ async function openTrip(budgetUsdc = 10, endDate = "2026-10-12") {
 async function useAndSign(trip: Awaited<ReturnType<typeof openTrip>>, mb: number) {
   await service.processDemoTraffic(trip.id, mb * MB);
   const request = await service.voucherRequest(trip.id);
-  return service.submitVoucher(trip.id, signVoucher(trip.session, trip.escrowId, BigInt(request.cumulativeAtomic)));
+  return service.submitVoucher(trip.id, signVoucher(meter, trip.escrowId, BigInt(request.cumulativeAtomic)));
 }
 
 test("the tranche rule: one tranche past the voucher, never past what the deposit pays for", () => {
@@ -144,6 +157,7 @@ test("the deposit is read from the escrow: traveler and session key come from th
   assert.equal(mission.escrowActiveAt, "2026-10-05T12:00:00.000Z");
   const caps = await service.getCapabilities();
   assert.equal(caps.escrowSessionKeys, true);
+  assert.equal(caps.escrowMeter, true);
   assert.equal(caps.escrowAutomation, true);
   assert.equal(caps.escrowOperator, chain.operator);
 });
@@ -192,12 +206,49 @@ test("each voucher funds the next part, so the wallet stays one tranche ahead an
   assert.equal(provider.sim(trip.iccid).fundingRequests.reduce((n, f) => n + f.amountCents, 0), 666);
 });
 
-test("without a voucher nothing more is funded: the most AstroAm can lose is one tranche", async () => {
+test("the meter attests usage on the next pass, and funding stays within what the deposit pays for", async () => {
   const trip = await openTrip();
-  await service.processDemoTraffic(trip.id, 2000 * MB);
+  await service.processDemoTraffic(trip.id, 2000 * MB); // 5 USDC
   const pass = await service.advance(trip.id, clock);
+  // 5 USDC pays for 333 cents of provider cost, plus one tranche, from the 250 already funded.
+  assert.equal(pass.fundedCents, 333);
+  assert.equal((await service.getMission(trip.id)).fundedCents, 583);
+  const escrow = await chain.readEscrow(trip.escrowId);
+  assert.equal(escrow?.attested, 5_000_000n);
+  // 5 USDC is above CLAIM_MIN_USDC, so this pass also collects it. The other 5 stays deposited.
+  assert.equal(chain.payeeBalance, 5_000_000n);
+  assert.equal(escrow?.deposit, 10_000_000n);
+  assert.equal(escrow?.claimed, 5_000_000n);
+});
+
+test("without a meter key, metered usage is not attested and nothing more is funded", async () => {
+  const localProvider = new FakeProvider();
+  const localChain = new FakeEscrowChain(PROGRAM, meter.address, () => clock);
+  const bare = new MissionProductService({
+    repo: new MemoryRepo(),
+    connectivity: localProvider,
+    rail: new FakeRail(),
+    escrowChain: localChain,
+    depositReadRetryMs: 1,
+    logger: () => {},
+  });
+  const created = await bare.createMission({
+    destination: BRASIL,
+    startDate: "2026-10-05",
+    endDate: "2026-10-12",
+    budgetUsdc: 10,
+    dailyLimitUsdc: 10,
+  });
+  const intent = await bare.createPaymentIntent(created.id);
+  localChain.deposit({ escrowId: intent.solana.escrowId, traveler: TRAVELER, amount: BigInt(intent.solana.amount) });
+  await bare.confirmPayment(created.id, intent.intentId, "deposit-tx");
+  await bare.activateMission(created.id);
+  await bare.processDemoTraffic(created.id, 2000 * MB);
+  const pass = await bare.advance(created.id, clock);
   assert.equal(pass.fundedCents, 0);
-  assert.equal((await service.getMission(trip.id)).fundedCents, 250);
+  assert.equal((await bare.getMission(created.id)).fundedCents, 250);
+  assert.equal((await bare.getMission(created.id)).voucher, undefined);
+  assert.equal((await localChain.readEscrow(intent.solana.escrowId))?.attested, 0n);
 });
 
 test("a voucher is refused when the signer, the amount or the signature is wrong", async () => {
@@ -205,14 +256,15 @@ test("a voucher is refused when the signer, the amount or the signature is wrong
   await service.processDemoTraffic(trip.id, 400 * MB);
 
   const stranger = newKey();
-  await assert.rejects(service.submitVoucher(trip.id, signVoucher(stranger, trip.escrowId, 1_000_000n)), /not signed by this trip/);
-  await assert.rejects(service.submitVoucher(trip.id, signVoucher(trip.session, trip.escrowId, 1_000_001n)), /more than the metered usage/);
-  await assert.rejects(service.submitVoucher(trip.id, signVoucher(trip.session, trip.escrowId, 10_000_001n)), /more than the deposit/);
-  const tampered = { ...signVoucher(trip.session, trip.escrowId, 900_000n), cumulativeAtomic: "1000000" };
+  await assert.rejects(service.submitVoucher(trip.id, signVoucher(stranger, trip.escrowId, 1_000_000n)), /not signed by the meter/);
+  await assert.rejects(service.submitVoucher(trip.id, signVoucher(trip.session, trip.escrowId, 1_000_000n)), /not signed by the meter/);
+  await assert.rejects(service.submitVoucher(trip.id, signVoucher(meter, trip.escrowId, 1_000_001n)), /more than the metered usage/);
+  await assert.rejects(service.submitVoucher(trip.id, signVoucher(meter, trip.escrowId, 10_000_001n)), /more than the deposit/);
+  const tampered = { ...signVoucher(meter, trip.escrowId, 900_000n), cumulativeAtomic: "1000000" };
   await assert.rejects(service.submitVoucher(trip.id, tampered), /does not verify/);
 
-  await service.submitVoucher(trip.id, signVoucher(trip.session, trip.escrowId, 1_000_000n));
-  await assert.rejects(service.submitVoucher(trip.id, signVoucher(trip.session, trip.escrowId, 500_000n)), /higher voucher was already received/);
+  await service.submitVoucher(trip.id, signVoucher(meter, trip.escrowId, 1_000_000n));
+  await assert.rejects(service.submitVoucher(trip.id, signVoucher(meter, trip.escrowId, 500_000n)), /higher voucher was already received/);
   assert.equal((await service.voucherRequest(trip.id)).signedAtomic, "1000000");
 });
 
@@ -222,6 +274,7 @@ test("the job claims once the voucher holds a tranche, and the claim restarts th
   let pass = await service.advance(trip.id, clock);
   assert.equal(pass.claimTxHash, undefined);
   assert.equal(chain.payeeBalance, 0n);
+  assert.equal((await chain.readEscrow(trip.escrowId))?.attested, 1_000_000n);
 
   await useAndSign(trip, 800); // 3 USDC
   clock = new Date("2026-10-06T12:00:00Z");
@@ -241,7 +294,7 @@ test("the job claims once the voucher holds a tranche, and the claim restarts th
   assert.equal(chain.payeeBalance, 3_000_000n);
 });
 
-test("the traveler ends the trip and the backend closes with the session voucher", async () => {
+test("the traveler ends the trip and the backend closes with the meter voucher", async () => {
   const trip = await openTrip();
   await useAndSign(trip, 1200); // 3 USDC
   await service.advance(trip.id, clock); // claims 3 USDC
@@ -249,7 +302,7 @@ test("the traveler ends the trip and the backend closes with the session voucher
 
   const quote = await service.voucherRequest(trip.id);
   assert.equal(quote.cumulativeAtomic, "3500000");
-  const closed = await service.settleMission(trip.id, signVoucher(trip.session, trip.escrowId, 3_500_000n));
+  const closed = await service.settleMission(trip.id);
 
   assert.equal(closed.status, "completed");
   assert.ok(closed.txHash);
@@ -261,7 +314,7 @@ test("the traveler ends the trip and the backend closes with the session voucher
   assert.equal(provider.sim(trip.iccid).defundPending, true);
 
   // Asking again returns the same close instead of sending another.
-  const again = await service.settleMission(trip.id, signVoucher(trip.session, trip.escrowId, 3_500_000n));
+  const again = await service.settleMission(trip.id);
   assert.equal(again.txHash, closed.txHash);
   assert.equal(chain.payeeBalance, 3_500_000n);
 });
@@ -356,8 +409,15 @@ test("the job advances every open trip and sweeps what was collected to the trea
   assert.equal((await runFundFlowOnce(deps)).sweepTxHash, undefined);
 });
 
-test("without an operator key the session key still signs, and the wallet sends the close", async () => {
-  const plain = new MissionProductService({ repo: new MemoryRepo(), connectivity: new FakeProvider(), rail: new FakeRail(), logger: () => {} });
+test("without an operator key the meter still signs, and the wallet can submit the close", async () => {
+  const signing = asMeter(meter);
+  const plain = new MissionProductService({
+    repo: new MemoryRepo(),
+    connectivity: new FakeProvider(),
+    rail: new FakeRail(),
+    meter: signing,
+    logger: () => {},
+  });
   const session = newKey();
   const created = await plain.createMission({ destination: BRASIL, startDate: "2026-10-05", endDate: "2026-10-12", budgetUsdc: 5, dailyLimitUsdc: 5 });
   const intent = await plain.createPaymentIntent(created.id);
@@ -366,19 +426,25 @@ test("without an operator key the session key still signs, and the wallet sends 
   await plain.activateMission(created.id);
   await plain.processDemoTraffic(created.id, 250 * MB);
 
-  const res = await plain.submitVoucher(created.id, signVoucher(session, intent.solana.escrowId, 625_000n));
+  const res = await plain.submitVoucher(created.id, signing.sign(PROGRAM, intent.solana.escrowId, 625_000n));
   assert.equal(res.cumulativeAtomic, "625000");
   // The deposit was not read from the chain, so no provider money moves on its word.
   assert.equal(res.fundedCents, 0);
-  assert.equal((await plain.getCapabilities()).escrowAutomation, false);
+  const caps = await plain.getCapabilities();
+  assert.equal(caps.escrowAutomation, false);
+  assert.equal(caps.escrowMeter, true);
+  await assert.rejects(plain.submitVoucher(created.id, signVoucher(session, intent.solana.escrowId, 625_000n)), /not signed by the meter/);
   await assert.rejects(plain.settleMission(created.id), /503: No operator key/);
 });
 
-test("ending a trip through the backend needs the final voucher from the traveler", async () => {
+test("ending a trip does not need the traveler's signature", async () => {
   const trip = await openTrip();
   await useAndSign(trip, 400);
-  await assert.rejects(service.settleMission(trip.id), /needs its final voucher/);
-  // A voucher from someone else does not end it either.
-  await assert.rejects(service.settleMission(trip.id, signVoucher(newKey(), trip.escrowId, 1_000_000n)), /not signed by this trip/);
+  await assert.rejects(service.settleMission(trip.id, signVoucher(newKey(), trip.escrowId, 1_000_000n)), /not signed by the meter/);
   assert.equal((await service.getMission(trip.id)).status, "active");
+  const closed = await service.settleMission(trip.id);
+  assert.equal(closed.status, "completed");
+  assert.equal(closed.settledUsdc, 1);
+  assert.equal(chain.payeeBalance, 1_000_000n);
+  assert.equal(chain.refunds.get(TRAVELER), 9_000_000n);
 });

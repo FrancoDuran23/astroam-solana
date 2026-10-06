@@ -113,17 +113,17 @@ export type SolanaDepositPlan = {
   amountUsdc: string
   timeoutSeconds: number
   deployed: boolean
-  /** The deployed program takes a session key at deposit, so the app signs vouchers without the wallet. */
+  /** The deposit may register a session key. That key does not sign vouchers. */
   sessionKeys?: boolean
 }
 
-/** A cumulative voucher: the total the traveler authorizes AstroAm to collect from the escrow. */
+/** A cumulative voucher: the total AstroAm's meter key authorizes the escrow to pay. */
 export type SignedVoucher = {
   /** 6-decimal USDC atomic units. */
   cumulativeAtomic: string
   /** base64 of the ed25519 signature. */
   signature: string
-  /** base58 key that signed: the session key or the wallet. */
+  /** base58 meter key that signed. */
   signer: string
 }
 
@@ -137,6 +137,10 @@ export type VoucherRequest = {
   signedAtomic: string
   claimedAtomic: string
   sessionKey: string | null
+  /** Meter pubkey the program accepts. */
+  meter?: string | null
+  /** Latest voucher the meter already signed, when the backend holds the key. */
+  voucher?: SignedVoucher | null
 }
 
 export type SolanaClosePlan = SolanaDepositPlan & {
@@ -184,6 +188,8 @@ export type FinishResult = {
   /** Traveler wallet and its USDC balance, read around the close. */
   wallet?: { address: string; beforeUsdc: number; afterUsdc: number }
   solana?: SolanaClosePlan
+  /** Meter-signed voucher for this close. The wallet submits it and does not sign the amount. */
+  meterVoucher?: SignedVoucher | null
 }
 
 export type CancelResult = {
@@ -198,9 +204,13 @@ export type BackendCapabilities = {
   network: string
   paymentRail: string
   paymentsLive: boolean
-  /** The deployed escrow takes a session key: the app signs usage vouchers without the wallet. */
+  /** The deployed escrow takes a session key. That key does not sign vouchers. */
   escrowSessionKeys?: boolean
-  /** The backend sends claims and the close itself, with the session vouchers. */
+  /** The backend holds the meter key and signs usage vouchers. */
+  escrowMeter?: boolean
+  /** Public key of that meter. */
+  solanaMeter?: string | null
+  /** The backend sends the checkpoint, the claims and the close itself. */
   escrowAutomation?: boolean
   escrowOperator?: string | null
   channelReady: boolean

@@ -54,11 +54,12 @@ export type SolanaDepositPlan = {
   timeoutSeconds: number;
   deployed: boolean;
   /**
-   * The deployed program accepts a session key at deposit and partial claims
-   * (`SOLANA_ESCROW_SESSION_KEYS=true`). The first deployed program rejects
-   * the longer deposit, so this stays false until it is upgraded.
+   * The deposit may still register a session key (`SOLANA_ESCROW_SESSION_KEYS=true`).
+   * That key does not authorize settlement: only the meter key does.
    */
   sessionKeys: boolean;
+  /** Meter pubkey stored in the program config. Null until `SOLANA_METER_PUBKEY` is set. */
+  meter: string | null;
 };
 
 export type SolanaClosePlan = SolanaDepositPlan & {
@@ -93,6 +94,7 @@ export function buildDepositPlan(params: {
   const env = params.env ?? process.env;
   const programId = readAddress(env.SOLANA_PROGRAM_ID);
   const payee = readAddress(env.SOLANA_PAYEE_ADDRESS);
+  const meter = readAddress(env.SOLANA_METER_PUBKEY);
   const amount = usdcToSolanaAtomic(params.budgetUsdc);
   return {
     cluster: SOLANA_CLUSTER,
@@ -109,6 +111,7 @@ export function buildDepositPlan(params: {
     timeoutSeconds: timeoutFromEnv(env),
     deployed: programId !== null && payee !== null,
     sessionKeys: programId !== null && payee !== null && env.SOLANA_ESCROW_SESSION_KEYS?.trim() === "true",
+    meter,
   };
 }
 
