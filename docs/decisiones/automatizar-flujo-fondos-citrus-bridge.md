@@ -1,9 +1,10 @@
 # Decisión: Citrus + Bridge para automatizar el flujo de fondos
 
 **Fecha:** 5/10/2026 · **Estado:** el escrow (clave de sesión y claims), el
-fondeo por tramos, el cobro y el cierre automáticos están implementados y con
-tests; el programa actualizado todavía no se desplegó en devnet. Bridge, la
-tarjeta de Citrus y la prueba con una eSIM real siguen pendientes (§6).
+fondeo por tramos, el cobro, el cierre y el barrido a la liquidation address
+están implementados y con tests; el programa actualizado todavía no se
+desplegó en devnet. Abrir la cuenta Bridge, la tarjeta de Citrus y la prueba
+con una eSIM real siguen pendientes (§6).
 
 Esta decisión **reemplaza y extiende** la propuesta de la rama
 `docs/automatizar-flujo-de-fondos`
@@ -198,8 +199,14 @@ Hecho en el código:
   fondea la eSIM un tramo por delante del vale, cobra con `claim`, cierra con
   `close` y barre lo cobrado a `BRIDGE_LIQUIDATION_ADDRESS`
   (`src/product/services/fund-flow.ts`, `src/jobs/fund-flow.ts`,
-  `src/solana/EscrowChain.ts`). Con la clave de operador el depósito se lee
-  del escrow, no del pedido.
+  `src/treasury/sweep.ts`, `src/solana/EscrowChain.ts`). El barrido deja
+  `TREASURY_FLOAT_USDC` en el payee y solo mueve el sobrante si llega a
+  `TREASURY_SWEEP_MIN_USDC` (1 USDC por defecto). Sin la variable no corre.
+  Con la clave de operador el depósito se lee del escrow, no del pedido.
+- **Saldo reseller**: `balance.auto_refill_failed` pausa la provisión y el
+  fondeo de tramos nuevos hasta `balance.auto_refill_succeeded` o
+  `balance.topped_up`. `balance.low` y `balance.depleted` quedan en el log.
+  No hay cliente HTTP de Bridge.
 
 Diferencias con lo escrito arriba:
 
@@ -216,9 +223,10 @@ Diferencias con lo escrito arriba:
 
 Pendiente, fuera del código: los pasos 1, 2, 4 y 5 de §5; desplegar el
 programa actualizado (`npm run solana:upgrade`, con la clave que lo
-desplegó); y la prueba con una eSIM real. Los webhooks de Citrus
-(`esim.balance_depleted`, `esim.defunded`) no están conectados al flujo: hoy
-se entera por la lectura periódica.
+desplegó); y la prueba con una eSIM real. Los webhooks de la eSIM
+(`esim.balance_depleted`, `esim.defunded`) no mueven el fondeo por tramos:
+el uso se entera por la lectura periódica. Los de la cuenta reseller sí
+pausan o reanudan ese fondeo.
 
 ## Enlaces
 

@@ -25,10 +25,11 @@ import { SOLANA_RPC_URL, SOLANA_USDC_MINT, SPL_TOKEN_PROGRAM_ID } from "../share
 import { claimData, closeData, decodeEscrow, type EscrowState, type SignedVoucher } from "../shared/solana/escrow.ts";
 import { isSolanaAddress } from "../shared/solana/base58.ts";
 import { closeVoucherMessage } from "../shared/solana/voucher.ts";
+import { sweepAmount, type SweepResult, type TreasuryPort, type TreasurySweepInput } from "../treasury/sweep.ts";
 
-export type SweepResult = { txHash: string; amountAtomic: bigint };
+export type { SweepResult, TreasurySweepInput } from "../treasury/sweep.ts";
 
-export interface EscrowChain {
+export interface EscrowChain extends TreasuryPort {
   /** base58 address of the key that pays fees and submits. */
   readonly operator: string;
   /** The escrow account as it is on-chain, or null when it does not exist. */
@@ -37,8 +38,6 @@ export interface EscrowChain {
   claim(input: { escrowId: string; voucher: SignedVoucher }): Promise<string>;
   /** Collects the rest of the voucher and refunds the traveler. Returns the transaction signature. */
   close(input: { escrowId: string; voucher: SignedVoucher; traveler: string }): Promise<string>;
-  /** Sends the payee's USDC to `to` when it holds at least `minAtomic`. Null when it does not. */
-  sweep(input: { to: string; minAtomic: bigint }): Promise<SweepResult | null>;
 }
 
 const TOKEN_PROGRAM = new PublicKey(SPL_TOKEN_PROGRAM_ID);
@@ -182,7 +181,7 @@ export class SolanaEscrowChain implements EscrowChain {
     ];
   }
 
-  async sweep(input: { to: string; minAtomic: bigint }): Promise<SweepResult | null> {
+  async sweep(input: TreasurySweepInput): Promise<SweepResult | null> {
     const operator = this.signer.publicKey;
     if (!operator.equals(this.payee)) {
       throw new Error("the operator key is not the payee, so it cannot move the collected USDC");
@@ -190,12 +189,13 @@ export class SolanaEscrowChain implements EscrowChain {
     const source = associatedTokenAddress(this.payee, this.mint);
     if ((await this.connection.getAccountInfo(source)) === null) return null;
     const balance = BigInt((await this.connection.getTokenAccountBalance(source)).value.amount);
-    if (balance === 0n || balance < input.minAtomic) return null;
+    const amountAtomic = sweepAmount(balance, input);
+    if (amountAtomic === null) return null;
 
     const to = new PublicKey(input.to);
-    const amount = Buffer.alloc(9);
-    amount[0] = 3; // SPL Token `Transfer`
-    amount.writeBigUInt64LE(balance, 1);
+    const data = Buffer.alloc(9);
+    data[0] = 3; // SPL Token `Transfer` — no Bridge API, the address receives USDC.
+    data.writeBigUInt64LE(amountAtomic, 1);
     const txHash = await this.send([
       createTokenAccountIdempotent(operator, to, this.mint),
       new TransactionInstruction({
@@ -205,10 +205,10 @@ export class SolanaEscrowChain implements EscrowChain {
           { pubkey: associatedTokenAddress(to, this.mint), isSigner: false, isWritable: true },
           { pubkey: operator, isSigner: true, isWritable: false },
         ],
-        data: amount,
+        data,
       }),
     ]);
-    return { txHash, amountAtomic: balance };
+    return { txHash, amountAtomic };
   }
 }
 

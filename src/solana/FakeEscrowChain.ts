@@ -5,7 +5,8 @@
 
 import { encodeBase58 } from "../shared/solana/base58.ts";
 import { verifyVoucher, type EscrowState, type SignedVoucher } from "../shared/solana/escrow.ts";
-import type { EscrowChain, SweepResult } from "./EscrowChain.ts";
+import { sweepAmount, type SweepResult, type TreasurySweepInput } from "../treasury/sweep.ts";
+import type { EscrowChain } from "./EscrowChain.ts";
 
 export class FakeEscrowChain implements EscrowChain {
   readonly operator = encodeBase58(new Uint8Array(32).fill(0x77));
@@ -85,11 +86,11 @@ export class FakeEscrowChain implements EscrowChain {
     return this.txHash();
   }
 
-  async sweep(input: { to: string; minAtomic: bigint }): Promise<SweepResult | null> {
-    if (this.payeeBalance === 0n || this.payeeBalance < input.minAtomic) return null;
-    const amountAtomic = this.payeeBalance;
+  async sweep(input: TreasurySweepInput): Promise<SweepResult | null> {
+    const amountAtomic = sweepAmount(this.payeeBalance, input);
+    if (amountAtomic === null) return null;
     this.swept.set(input.to, (this.swept.get(input.to) ?? 0n) + amountAtomic);
-    this.payeeBalance = 0n;
+    this.payeeBalance -= amountAtomic;
     return { txHash: this.txHash(), amountAtomic };
   }
 }

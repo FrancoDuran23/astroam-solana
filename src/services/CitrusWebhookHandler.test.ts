@@ -10,6 +10,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { CitrusWebhookHandler, verifyCitrusSignature, type WebhookHandleResult } from "./CitrusWebhookHandler.ts";
+import { MemoryResellerFundingGate, type ResellerFundingGate } from "./ResellerFundingGate.ts";
 import { WebhookEventLog } from "../persistence/webhook-event.ts";
 import { openEsimStore, type EsimRecordRow } from "../persistence/esim-record.ts";
 
@@ -87,7 +88,7 @@ test("verifyCitrusSignature: rejects wrong secret, tampered body, missing/malfor
   assert.equal(verifyCitrusSignature(Buffer.from(body), "0123456789abcdef", SECRET), false);
 });
 
-function makeHarness() {
+function makeHarness(fundingGate?: ResellerFundingGate) {
   const dir = tempDir("citrus-webhook-handler-");
   const storePath = path.join(dir, "esim.json");
   const logPath = path.join(dir, "events.jsonl");
@@ -97,9 +98,14 @@ function makeHarness() {
   const handler = new CitrusWebhookHandler({
     log,
     esimStore: store,
+    fundingGate,
     logger: (line) => stamped.push(line as Record<string, unknown>),
   });
-  return { dir, store, log, handler, stamped };
+  return { dir, store, log, handler, stamped, fundingGate };
+}
+
+function accountEvent(id: string, event: string) {
+  return { id, event, created_at: "2026-10-06T12:00:00.000Z", data: { balance_usd: 1.25 } };
 }
 
 test("handle: malformed payload is logged and accepted (200-class), never throws", async () => {
@@ -198,6 +204,74 @@ test("replay: reprocesses recorded-but-unprocessed events at boot (crash between
   await handler.replay();
   assert.equal(store.get(iccid)!.defund!.returnedMicroUsd, 500_000n);
   void dir;
+});
+
+test("balance.auto_refill_failed pauses funding and a later success or top-up resumes it", async () => {
+  const gate = new MemoryResellerFundingGate();
+  const { handler, stamped } = makeHarness(gate);
+
+  const failed = accept(await handler.handle(accountEvent("evt-fail", "balance.auto_refill_failed")));
+  assert.equal(failed.handled, "processed");
+  assert.equal(gate.isHalted(), true);
+  assert.equal(gate.snapshot().reason, "balance.auto_refill_failed");
+  assert.equal(stamped.some((line) => line.reason === "citrus_auto_refill_failed" && line.alert === true), true);
+
+  const duplicate = accept(await handler.handle(accountEvent("evt-fail", "balance.auto_refill_failed")));
+  assert.equal(duplicate.handled, "duplicate");
+  assert.equal(gate.snapshot().eventId, "evt-fail");
+
+  const low = accept(await handler.handle(accountEvent("evt-low", "balance.low")));
+  assert.equal(low.handled, "processed");
+  assert.equal(gate.isHalted(), true);
+  assert.equal(stamped.some((line) => line.reason === "citrus_reseller_balance" && line.event === "balance.low" && line.alert === true), true);
+
+  const depleted = accept(await handler.handle(accountEvent("evt-empty", "balance.depleted")));
+  assert.equal(depleted.handled, "processed");
+  assert.equal(gate.isHalted(), true);
+  assert.equal(stamped.some((line) => line.event === "balance.depleted" && line.alert === true), true);
+
+  const restored = accept(await handler.handle(accountEvent("evt-ok", "balance.auto_refill_succeeded")));
+  assert.equal(restored.handled, "processed");
+  assert.equal(gate.isHalted(), false);
+  assert.equal(stamped.some((line) => line.reason === "citrus_auto_refill_succeeded" && line.fundingResumed === true), true);
+
+  await handler.handle(accountEvent("evt-fail-2", "balance.auto_refill_failed"));
+  assert.equal(gate.isHalted(), true);
+  const topped = accept(await handler.handle(accountEvent("evt-top", "balance.topped_up")));
+  assert.equal(topped.handled, "processed");
+  assert.equal(gate.isHalted(), false);
+  assert.equal(stamped.some((line) => line.reason === "citrus_balance_topped_up" && line.fundingResumed === true), true);
+});
+
+test("replay of an unprocessed auto-refill failure pauses funding at boot", async () => {
+  const { log, store } = makeHarness();
+  log.record({
+    id: "evt-replay-fail",
+    event: "balance.auto_refill_failed",
+    createdAt: "2026-10-06T12:00:00.000Z",
+    payload: accountEvent("evt-replay-fail", "balance.auto_refill_failed"),
+  });
+  const gate = new MemoryResellerFundingGate();
+  const handler = new CitrusWebhookHandler({ log: WebhookEventLog.open(log.path), esimStore: store, fundingGate: gate, logger: () => {} });
+  await handler.replay();
+  assert.equal(gate.isHalted(), true);
+  assert.equal(gate.snapshot().eventId, "evt-replay-fail");
+  await handler.replay();
+  assert.equal(gate.snapshot().eventId, "evt-replay-fail");
+});
+
+test("account balance events are logged without a gate, and low balance does not pause", async () => {
+  const gate = new MemoryResellerFundingGate();
+  const { handler, stamped } = makeHarness(gate);
+  const low = accept(await handler.handle(accountEvent("evt-low-only", "balance.low")));
+  assert.equal(low.handled, "processed");
+  assert.equal(gate.isHalted(), false);
+  assert.equal(stamped.some((line) => line.reason === "citrus_reseller_balance" && line.event === "balance.low" && line.alert === true), true);
+
+  const bare = makeHarness();
+  const failed = accept(await bare.handler.handle(accountEvent("evt-bare", "balance.auto_refill_failed")));
+  assert.equal(failed.handled, "processed");
+  assert.equal(bare.stamped.some((line) => line.alert === true && line.reason === "citrus_auto_refill_failed"), true);
 });
 
 test("handle esim.defunded for an unknown/missing iccid warns but never throws", async () => {

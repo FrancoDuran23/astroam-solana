@@ -30,6 +30,7 @@ import { verifyVoucher, type EscrowState, type SignedVoucher } from '../../share
 import { createChannelMutex } from '../../shared/mutex.ts'
 import { equivalentBytes } from '../../shared/usage-math.ts'
 import type { EscrowChain } from '../../solana/EscrowChain.ts'
+import type { ResellerFundingGate } from '../../services/ResellerFundingGate.ts'
 import {
   DEFAULT_FUND_FLOW,
   autoCloseReason,
@@ -69,6 +70,8 @@ export type MissionProductServiceOptions = {
   /** With it the backend reads deposits from the escrow and sends claims and closes itself. */
   escrowChain?: EscrowChain
   fundFlow?: FundFlowConfig
+  /** Set when a Citrus auto-refill failure should stop new funding and provisioning. */
+  fundingGate?: ResellerFundingGate
   /** How long to wait between reads while a deposit reaches the RPC node, ms. */
   depositReadRetryMs?: number
   logger?: (line: Record<string, unknown>) => void
@@ -92,6 +95,7 @@ export class MissionProductService {
   private hasCitrusReal: boolean
   private chain: EscrowChain | undefined
   private fundFlow: FundFlowConfig
+  private fundingGate: ResellerFundingGate | undefined
   private depositReadRetryMs: number
   private logger: (line: Record<string, unknown>) => void
   // One writer per trip: a request and the fund-flow job never save over each other.
@@ -108,6 +112,7 @@ export class MissionProductService {
     this.hasCitrusReal = options.hasCitrusReal ?? false
     this.chain = options.escrowChain
     this.fundFlow = options.fundFlow ?? DEFAULT_FUND_FLOW
+    this.fundingGate = options.fundingGate
     this.depositReadRetryMs = options.depositReadRetryMs ?? 600
     this.logger = options.logger ?? ((line) => process.stdout.write(`${JSON.stringify(line)}\n`))
   }
@@ -369,6 +374,18 @@ export class MissionProductService {
     // Idempotent
     if (mission.status === 'active' && mission.iccid && mission.esim) {
       return { missionId: mission.id, status: mission.status, isMock: !this.hasCitrusReal, esim: mission.esim }
+    }
+
+    if (this.fundingGate?.isHalted()) {
+      this.logger({
+        level: 'error',
+        alert: true,
+        metric: 'citrus_reseller_funding_paused',
+        msg: 'provisioning paused',
+        missionId: mission.id,
+        reason: this.fundingGate.snapshot().reason,
+      })
+      throw unavailable('New eSIM provisioning is paused until the Citrus reseller balance is refilled')
     }
 
     const esimRecord = await this.connectivity.provisionEsim(mission.userId)
@@ -931,6 +948,19 @@ export class MissionProductService {
       this.fundFlow,
     )
     if (amount === 0) return 0
+
+    if (this.fundingGate?.isHalted()) {
+      this.logger({
+        level: 'warn',
+        alert: true,
+        metric: 'citrus_reseller_funding_paused',
+        msg: 'tranche funding paused',
+        missionId: mission.id,
+        amountCents: amount,
+        reason: this.fundingGate.snapshot().reason,
+      })
+      return 0
+    }
 
     mission.pendingFund = { amountCents: amount, requestedAt: new Date().toISOString() }
     await this.repo.save(mission)

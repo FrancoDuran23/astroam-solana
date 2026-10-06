@@ -2,14 +2,16 @@
 // config never prevents the process from starting.
 
 import "dotenv/config";
+import path from "node:path";
 import { createConnectivityProvider } from "../providers/connectivity/createConnectivityProvider.ts";
 import { CitrusWebhookHandler } from "../services/CitrusWebhookHandler.ts";
+import { openResellerFundingGate } from "../services/ResellerFundingGate.ts";
 import { webhookEventPath, WebhookEventLog } from "../persistence/webhook-event.ts";
 import { createPaymentRail } from "../rails/createPaymentRail.ts";
 import { bootProductService } from "../product/runtime/product-boot.ts";
 import { createEscrowChain, type EscrowChain } from "../solana/EscrowChain.ts";
 import { FUND_FLOW_INTERVAL_MS_DEFAULT, startFundFlowLoop } from "../jobs/fund-flow.ts";
-import { isSolanaAddress } from "../shared/solana/base58.ts";
+import { treasuryConfigFromEnv } from "../treasury/sweep.ts";
 import { createServerApp } from "./app.ts";
 import type { CitrusWebhooksRouteOptions } from "./routes/citrus-webhooks.ts";
 
@@ -34,7 +36,17 @@ try {
     detail: error instanceof Error ? error.message : String(error),
   });
 }
-const productService = bootProductService(env, rail, escrowChain);
+const fundingGate = openResellerFundingGate(path.join(dataDir, "reseller-funding-halt.json"), log);
+if (fundingGate.isHalted()) {
+  log({
+    level: "error",
+    alert: true,
+    metric: "citrus_reseller_funding_paused",
+    msg: "reseller funding is paused",
+    ...fundingGate.snapshot(),
+  });
+}
+const productService = bootProductService(env, rail, escrowChain, fundingGate);
 
 // Citrus webhooks: mounted when CONNECTIVITY_PROVIDER=citrus and
 // CITRUS_WEBHOOK_SECRET are set. Incomplete config degrades to "no webhooks"
@@ -54,6 +66,7 @@ if (env.CONNECTIVITY_PROVIDER === "citrus" && env.CITRUS_WEBHOOK_SECRET) {
     const handler = new CitrusWebhookHandler({
       log: WebhookEventLog.open(webhookEventPath(dataDir, network)),
       esimStore,
+      fundingGate,
       logger: (line) => log(line as Record<string, unknown>),
     });
     citrusWebhooks = { handler, secret: env.CITRUS_WEBHOOK_SECRET };
@@ -74,21 +87,34 @@ app.listen(port, () => {
 });
 
 if (escrowChain !== undefined) {
-  const treasuryAddress = env.BRIDGE_LIQUIDATION_ADDRESS?.trim();
-  const sweepMinUsdc = Number(env.TREASURY_SWEEP_MIN_USDC);
-  const treasury = isSolanaAddress(treasuryAddress)
-    ? {
-        address: treasuryAddress!,
-        minAtomic: BigInt(Math.round((Number.isFinite(sweepMinUsdc) && sweepMinUsdc > 0 ? sweepMinUsdc : 5) * 1e6)),
-      }
-    : undefined;
+  const treasury = treasuryConfigFromEnv(env);
+  if (!treasury.enabled && treasury.reason === "invalid_address") {
+    log({
+      level: "error",
+      msg: "BRIDGE_LIQUIDATION_ADDRESS is not a Solana address — treasury sweep is off",
+    });
+  }
   const intervalMs = Number(env.FUND_FLOW_INTERVAL_MS) > 0 ? Number(env.FUND_FLOW_INTERVAL_MS) : FUND_FLOW_INTERVAL_MS_DEFAULT;
-  startFundFlowLoop({ service: productService, chain: escrowChain, treasury, logger: log }, intervalMs);
+  startFundFlowLoop(
+    {
+      service: productService,
+      chain: escrowChain,
+      treasury: treasury.enabled ? treasury : undefined,
+      logger: log,
+    },
+    intervalMs,
+  );
   log({
     level: "info",
     msg: "fund flow is automatic",
     operator: escrowChain.operator,
     intervalMs,
-    treasury: treasury?.address ?? "not set (collected USDC stays with the payee)",
+    treasury: treasury.enabled
+      ? treasury.address
+      : treasury.reason === "invalid_address"
+        ? "invalid address (sweep off)"
+        : "not set (collected USDC stays with the payee)",
+    sweepMinAtomic: treasury.enabled ? treasury.minAtomic.toString() : undefined,
+    floatAtomic: treasury.enabled ? treasury.keepAtomic.toString() : undefined,
   });
 }

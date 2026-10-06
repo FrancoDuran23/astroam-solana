@@ -5,6 +5,9 @@
 import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { generateKeyPairSync, sign, type KeyObject } from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { MissionProductService } from "./services/MissionProductService.ts";
 import { DEFAULT_FUND_FLOW, costCentsPaidBy, nextFundCents } from "./services/fund-flow.ts";
 import type { MissionRepository } from "./persistence/MissionRepository.ts";
@@ -13,6 +16,10 @@ import { FakeProvider } from "../providers/connectivity/FakeProvider.ts";
 import { FakeRail } from "../rails/FakeRail.ts";
 import { FakeEscrowChain } from "../solana/FakeEscrowChain.ts";
 import { runFundFlowOnce } from "../jobs/fund-flow.ts";
+import { CitrusWebhookHandler } from "../services/CitrusWebhookHandler.ts";
+import { MemoryResellerFundingGate } from "../services/ResellerFundingGate.ts";
+import { WebhookEventLog } from "../persistence/webhook-event.ts";
+import { openEsimStore } from "../persistence/esim-record.ts";
 import { decodeBase58, encodeBase58 } from "../shared/solana/base58.ts";
 import { closeVoucherMessage } from "../shared/solana/voucher.ts";
 import type { SignedVoucher } from "../shared/solana/escrow.ts";
@@ -61,6 +68,7 @@ function signVoucher(key: Key, escrowId: string, atomic: bigint): SignedVoucher 
 let service: MissionProductService;
 let provider: FakeProvider;
 let chain: FakeEscrowChain;
+let fundingGate: MemoryResellerFundingGate;
 let clock: Date;
 
 before(() => {
@@ -82,11 +90,13 @@ beforeEach(() => {
   clock = new Date("2026-10-05T12:00:00Z");
   provider = new FakeProvider();
   chain = new FakeEscrowChain(PROGRAM, () => clock);
+  fundingGate = new MemoryResellerFundingGate();
   service = new MissionProductService({
     repo: new MemoryRepo(),
     connectivity: provider,
     rail: new FakeRail(),
     escrowChain: chain,
+    fundingGate,
     depositReadRetryMs: 1,
     logger: () => {},
   });
@@ -344,7 +354,7 @@ test("the job advances every open trip and sweeps what was collected to the trea
   await useAndSign(one, 1200); // 3 USDC
   await useAndSign(two, 1600); // 4 USDC
 
-  const deps = { service, chain, treasury: { address: TREASURY, minAtomic: 5_000_000n }, now: () => clock };
+  const deps = { service, chain, treasury: { address: TREASURY, minAtomic: 5_000_000n, keepAtomic: 0n }, now: () => clock };
   const tick = await runFundFlowOnce(deps);
   assert.equal(tick.advanced.length, 2);
   assert.ok(tick.advanced.every((a) => a.claimTxHash));
@@ -372,6 +382,85 @@ test("without an operator key the session key still signs, and the wallet sends 
   assert.equal(res.fundedCents, 0);
   assert.equal((await plain.getCapabilities()).escrowAutomation, false);
   await assert.rejects(plain.settleMission(created.id), /503: No operator key/);
+});
+
+function accountEvent(id: string, event: string) {
+  return { id, event, created_at: "2026-10-06T12:00:00.000Z", data: {} };
+}
+
+function accountWebhook(gate: MemoryResellerFundingGate) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "treasury-pause-"));
+  return new CitrusWebhookHandler({
+    log: WebhookEventLog.open(path.join(dir, "events.jsonl")),
+    esimStore: openEsimStore(path.join(dir, "esim.json")),
+    fundingGate: gate,
+    logger: () => {},
+  });
+}
+
+test("auto-refill failure pauses provisioning on the fake provider until the balance is restored", async () => {
+  const handler = accountWebhook(fundingGate);
+  await handler.handle(accountEvent("evt-fail", "balance.auto_refill_failed"));
+  const session = newKey();
+  const created = await service.createMission({
+    destination: BRASIL,
+    startDate: "2026-10-05",
+    endDate: "2026-10-12",
+    budgetUsdc: 10,
+    dailyLimitUsdc: 10,
+  });
+  const intent = await service.createPaymentIntent(created.id);
+  chain.deposit({
+    escrowId: intent.solana.escrowId,
+    traveler: TRAVELER,
+    amount: BigInt(intent.solana.amount),
+    sessionKey: session.address,
+  });
+  await service.confirmPayment(created.id, intent.intentId, "deposit-tx");
+  await assert.rejects(() => service.activateMission(created.id), /provisioning is paused/);
+  assert.equal(provider.list().length, 0);
+
+  await handler.handle(accountEvent("evt-ok", "balance.auto_refill_succeeded"));
+  assert.equal(fundingGate.isHalted(), false);
+  const activated = await service.activateMission(created.id);
+  assert.equal(provider.sim(activated.esim.iccid).fundingRequests.map((f) => f.amountCents).join(","), "250");
+});
+
+test("auto-refill failure pauses new tranches; claims and the sweep still move collected USDC", async () => {
+  const trip = await openTrip();
+  const handler = accountWebhook(fundingGate);
+  await handler.handle(accountEvent("evt-fail-2", "balance.auto_refill_failed"));
+  const signed = await useAndSign(trip, 1200); // 3 USDC covered, next tranche would be 200 cents
+  assert.equal(signed.fundedNowCents, 0);
+  assert.deepEqual(provider.sim(trip.iccid).fundingRequests.map((f) => f.amountCents), [250]);
+
+  const tick = await runFundFlowOnce({
+    service,
+    chain,
+    treasury: { address: TREASURY, minAtomic: 1_000_000n, keepAtomic: 0n },
+    now: () => clock,
+  });
+  assert.ok(tick.advanced.some((step) => step.claimTxHash));
+  assert.equal(tick.advanced.every((step) => step.fundedCents === 0), true);
+  assert.ok(tick.sweepTxHash);
+  assert.equal(chain.swept.get(TREASURY), 3_000_000n);
+  assert.equal(chain.payeeBalance, 0n);
+  assert.deepEqual(provider.sim(trip.iccid).fundingRequests.map((f) => f.amountCents), [250]);
+
+  // A second tick does not sweep again, and funding stays paused.
+  const again = await runFundFlowOnce({
+    service,
+    chain,
+    treasury: { address: TREASURY, minAtomic: 1_000_000n, keepAtomic: 0n },
+    now: () => clock,
+  });
+  assert.equal(again.sweepTxHash, undefined);
+  assert.equal(chain.swept.get(TREASURY), 3_000_000n);
+
+  await handler.handle(accountEvent("evt-topped", "balance.topped_up"));
+  const resumed = await service.advance(trip.id, clock);
+  assert.equal(resumed.fundedCents, 200);
+  assert.deepEqual(provider.sim(trip.iccid).fundingRequests.map((f) => f.amountCents), [250, 200]);
 });
 
 test("ending a trip through the backend needs the final voucher from the traveler", async () => {

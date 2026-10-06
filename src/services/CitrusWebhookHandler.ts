@@ -13,12 +13,18 @@
 //   path).
 // - `esim.balance_depleted` → marks the record `cut` (diagnosis); the wallet
 //   already cut data, no provider call needed.
+// - `balance.auto_refill_failed` → pauses new tranche funding and new eSIM
+//   provisioning (the reseller card did not refill). Logged as an alert.
+// - `balance.auto_refill_succeeded` and `balance.topped_up` → clear that pause.
+// - `balance.low` and `balance.depleted` → alert log; funding is not paused
+//   (auto-refill may still succeed).
 // - anything else → logged and answered 200 (R10: the rest is deferred).
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { WebhookEventLog, WebhookEventRecord } from "../persistence/webhook-event.ts";
 import type { EsimStore } from "../persistence/esim-record.ts";
 import { usdToMicroUsd } from "../providers/connectivity/CitrusProvider.ts";
+import type { ResellerFundingGate } from "./ResellerFundingGate.ts";
 
 const SIGNATURE_RE = /^(?:sha256=)?([0-9a-fA-F]{64})$/;
 
@@ -48,6 +54,8 @@ export type WebhookHandleResult =
 export type CitrusWebhookHandlerOptions = {
   log: WebhookEventLog;
   esimStore: EsimStore;
+  /** When set, a failed reseller auto-refill pauses new funding and provisioning. */
+  fundingGate?: ResellerFundingGate;
   logger?: (line: unknown) => void;
   now?: () => Date;
 };
@@ -55,12 +63,14 @@ export type CitrusWebhookHandlerOptions = {
 export class CitrusWebhookHandler {
   private readonly log: WebhookEventLog;
   private readonly esimStore: EsimStore;
+  private readonly fundingGate: ResellerFundingGate | undefined;
   private readonly logger: (line: unknown) => void;
   private readonly now: () => Date;
 
   constructor(options: CitrusWebhookHandlerOptions) {
     this.log = options.log;
     this.esimStore = options.esimStore;
+    this.fundingGate = options.fundingGate;
     this.logger = options.logger ?? ((line) => console.log(JSON.stringify(line)));
     this.now = options.now ?? (() => new Date());
   }
@@ -108,6 +118,17 @@ export class CitrusWebhookHandler {
           break;
         case "esim.balance_depleted":
           await this.onBalanceDepleted(record);
+          break;
+        case "balance.auto_refill_succeeded":
+        case "balance.topped_up":
+          this.onResellerBalanceRestored(record);
+          break;
+        case "balance.auto_refill_failed":
+          this.onAutoRefillFailed(record);
+          break;
+        case "balance.low":
+        case "balance.depleted":
+          this.onResellerBalanceLow(record);
           break;
         default:
           this.logger({
@@ -191,6 +212,44 @@ export class CitrusWebhookHandler {
       updatedAt: now,
     }));
     this.logger({ level: "warn", reason: "esim_balance_depleted", iccid, id: record.id });
+  }
+
+  /** The reseller USD balance is back: new tranches and provisioning may run. */
+  private onResellerBalanceRestored(record: WebhookEventRecord): void {
+    const wasHalted = this.fundingGate?.isHalted() ?? false;
+    this.fundingGate?.resume({ eventId: record.id });
+    this.logger({
+      level: "info",
+      reason: record.event === "balance.topped_up" ? "citrus_balance_topped_up" : "citrus_auto_refill_succeeded",
+      id: record.id,
+      event: record.event,
+      fundingResumed: wasHalted,
+    });
+  }
+
+  /** The saved card did not refill. Stop spending reseller USD until it does. */
+  private onAutoRefillFailed(record: WebhookEventRecord): void {
+    this.fundingGate?.halt({ reason: "balance.auto_refill_failed", eventId: record.id });
+    this.logger({
+      level: "error",
+      alert: true,
+      metric: "citrus_reseller_funding_paused",
+      reason: "citrus_auto_refill_failed",
+      id: record.id,
+      event: record.event,
+    });
+  }
+
+  /** Low or empty reseller balance. Auto-refill may still succeed, so funding stays up. */
+  private onResellerBalanceLow(record: WebhookEventRecord): void {
+    this.logger({
+      level: "warn",
+      alert: true,
+      metric: "citrus_reseller_balance",
+      reason: "citrus_reseller_balance",
+      id: record.id,
+      event: record.event,
+    });
   }
 }
 

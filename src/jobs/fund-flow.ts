@@ -7,6 +7,7 @@
 
 import type { AdvanceResult } from "../product/services/MissionProductService.ts";
 import type { EscrowChain } from "../solana/EscrowChain.ts";
+import type { EnabledTreasury } from "../treasury/sweep.ts";
 
 export const FUND_FLOW_INTERVAL_MS_DEFAULT = 60_000;
 
@@ -17,7 +18,7 @@ export type FundFlowJobDeps = {
   };
   chain: EscrowChain;
   /** Where collected USDC goes (`BRIDGE_LIQUIDATION_ADDRESS`). Without it nothing is swept. */
-  treasury?: { address: string; minAtomic: bigint };
+  treasury?: EnabledTreasury;
   logger?: (line: Record<string, unknown>) => void;
   now?: () => Date;
 };
@@ -45,10 +46,21 @@ export async function runFundFlowOnce(deps: FundFlowJobDeps): Promise<FundFlowTi
 
   if (deps.treasury) {
     try {
-      const swept = await deps.chain.sweep({ to: deps.treasury.address, minAtomic: deps.treasury.minAtomic });
+      const swept = await deps.chain.sweep({
+        to: deps.treasury.address,
+        minAtomic: deps.treasury.minAtomic,
+        keepAtomic: deps.treasury.keepAtomic,
+      });
       if (swept) {
         tick.sweepTxHash = swept.txHash;
-        logger({ level: "info", msg: "treasury sweep", txHash: swept.txHash, amountAtomic: swept.amountAtomic.toString(), to: deps.treasury.address });
+        logger({
+          level: "info",
+          msg: "treasury sweep",
+          txHash: swept.txHash,
+          amountAtomic: swept.amountAtomic.toString(),
+          keepAtomic: deps.treasury.keepAtomic.toString(),
+          to: deps.treasury.address,
+        });
       }
     } catch (error) {
       tick.sweepError = error instanceof Error ? error.message : String(error);

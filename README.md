@@ -94,7 +94,7 @@ Decisión: [`docs/decisiones/automatizar-flujo-fondos-citrus-bridge.md`](docs/de
 | Tramos | el backend | Fondea la eSIM como mucho un tramo (`FUNDING_TRANCHE_CENTS`, $2,50) por delante de lo que cubren los vales, y nunca más de lo que paga el depósito. |
 | Cobro | el backend | Cuando el vale junta `CLAIM_MIN_USDC` sin cobrar, manda un `claim`. |
 | Cierre | el backend | Manda el `close` cuando el viajero termina el viaje (`POST /api/missions/:id/settle`), se gasta el depósito, pasa la fecha de fin o falta un día para el timeout del escrow. |
-| Tesorería | el backend | Barre el USDC cobrado a `BRIDGE_LIQUIDATION_ADDRESS`. |
+| Tesorería | el backend | Barre el USDC cobrado a `BRIDGE_LIQUIDATION_ADDRESS`, dejando `TREASURY_FLOAT_USDC` en el payee. Ver [Treasury](#treasury). |
 
 Lo que AstroAm puede perder es un tramo: sin un vale nuevo no se fondea más, y un cierre con un vale viejo no recupera lo ya cobrado.
 
@@ -105,7 +105,29 @@ Se prende en dos pasos, y cada uno funciona sin el siguiente:
 
 Sin ninguna de las dos variables la app se comporta como antes.
 
-Falta, y no está en el código: abrir la cuenta de Bridge y crear la liquidation address, configurar en Citrus la tarjeta y la auto-recarga, y probar el lazo con una eSIM real. El programa actualizado todavía no se desplegó en devnet. Si `solana program deploy` dice que la cuenta del programa quedó chica, `solana program extend <program id> <bytes>` la agranda.
+El barrido y la pausa por auto-recarga fallida están en el código. Sigue siendo manual abrir la cuenta de Bridge, guardar la tarjeta en Citrus y confirmar con soporte si la auto-recarga corre sin un grupo compartido: el checklist está en [Treasury](#treasury). El programa actualizado todavía no se desplegó en devnet. Si `solana program deploy` dice que la cuenta del programa quedó chica, `solana program extend <program id> <bytes>` la agranda.
+
+## Treasury
+
+Circle USDC leaves the Solana escrow when the backend `claim`s or `close`s: the payee token account receives what the traveler used. The treasury sweep then sends that USDC to a [Bridge](https://bridge.xyz) liquidation address. Bridge converts it and deposits USD in AstroAm's bank. That bank backs the card Citrus auto-refills from. Citrus does not accept crypto. eSIM funding stays `POST /esim/{iccid}/fund` against the reseller USD balance. There is no Citrus top-up API.
+
+```
+USDC escrow → payee wallet → Bridge liquidation address → AstroAm bank → Citrus auto-refill card → reseller balance → eSIM wallet
+```
+
+The sweep runs at the end of each fund-flow tick, after that tick's claims and closes. It is off when `BRIDGE_LIQUIDATION_ADDRESS` is empty, and collected USDC stays in the payee wallet. When the address is set, the job transfers USDC only if the payee holds more than `TREASURY_FLOAT_USDC` by at least `TREASURY_SWEEP_MIN_USDC` (default **1 USDC**, the published minimum on the Solana USDC → USD route). The float stays in the payee wallet. Each sweep is logged with its transaction signature. The next tick does not send again until new USDC arrives above the float and the minimum. No Bridge HTTP API is required: an SPL USDC transfer to the address is the integration.
+
+Bridge's orchestration fee is about **0.25%** (orientative), plus the rail. ACH is nearly zero. Exact wire and FedNow costs are not fixed here, and the sweep does not deduct a fee of its own.
+
+`balance.auto_refill_failed` pauses new eSIM provisioning and new tranche funding until `balance.auto_refill_succeeded` or `balance.topped_up`. Claims, closes, and the sweep keep running. `balance.low` and `balance.depleted` are logged as alerts and do not pause funding, because auto-refill may still succeed. The same pause applies with `CONNECTIVITY_PROVIDER=fake`.
+
+### One-time setup
+
+1. Open a Bridge account and create a Solana / USDC liquidation address that pays AstroAm's bank. Put that address in `BRIDGE_LIQUIDATION_ADDRESS`. `SOLANA_OPERATOR_KEYPAIR` has to be the payee key, because only the payee can move the collected USDC.
+2. In the Citrus developer dashboard, save the card that bank account backs and turn on auto-refill. Refills are dashboard or auto-refill only.
+3. Email support@citrusmobile.com and ask whether account auto-refill fires when the reseller balance drops **without** a shared balance group. Traveler eSIMs stay standalone: a SIM inside a group has no individual wallet. That answer is still unknown.
+
+Until those are done, leave `BRIDGE_LIQUIDATION_ADDRESS` empty and refill Citrus by hand from the dashboard.
 
 ## Cheques
 
