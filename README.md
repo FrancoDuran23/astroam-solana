@@ -4,6 +4,17 @@ Demo para **Colosseum / Superteam Argentina** (cierra el 12/10/2026). El viajero
 
 La app base vino del build de Stellar ([FrancoDuran23/stellar_jujuy_dev@a19ed4d](https://github.com/FrancoDuran23/stellar_jujuy_dev/tree/a19ed4d)). El canal de Soroban no es el camino de pago de esta demo.
 
+## Team & roles
+
+Team of four, based in Jujuy, Argentina, working full-time remote.
+
+| Name | GitHub | Role | Main areas |
+|---|---|---|---|
+| Franco Agustín Durán (founder) | [@FrancoDuran23](https://github.com/FrancoDuran23) | Escrow program, payments backend, and frontend | Solana escrow (`programs/astroam-escrow`, deploy and fund flow); payments channel and vouchers on Stellar; contract and UI on Monad |
+| Ignacio Martín | [@ignaMartin22](https://github.com/ignaMartin22) | Connectivity (eSIM) and escrow contracts | Citrus/Telnyx, usage and webhooks on Stellar; escrow `claim` and refunds on Monad. Remaining program work, owned by him: meter-key close, and a timeout that pays the attested amount |
+| Daniel Palermo | [@DanielPalermoo](https://github.com/DanielPalermoo) | Backend and metering | Traffic meter, Soroban adapter, and CosmoPay gateway (Stellar build) |
+| Joel | [@Joel010999](https://github.com/Joel010999) | Frontend | Traveler app, mobile, eSIM flow in the UI, and product API (Stellar build) |
+
 ## Video demo
 
 [`docs/demo/AstroAm-demo-EN.mp4`](docs/demo/AstroAm-demo-EN.mp4) (2:28, en inglés). Cómo se grabó: [`docs/demo/recording`](docs/demo/recording/README.md).
