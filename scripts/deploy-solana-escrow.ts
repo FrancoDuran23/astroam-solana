@@ -11,7 +11,7 @@ import "dotenv/config";
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import {
   Connection,
   Keypair,
@@ -75,10 +75,13 @@ function humanSteps(): string {
   ].join("\n");
 }
 
+// PATH is split with `;` on Windows, and the CLI there is `solana.exe`.
 function onPath(name: string): boolean {
+  const extensions = process.platform === "win32" ? ["", ".exe", ".cmd", ".bat"] : [""];
   const found = (process.env.PATH ?? "")
-    .split(":")
-    .some((dir) => existsSync(join(dir, name)));
+    .split(delimiter)
+    .filter((dir) => dir !== "")
+    .some((dir) => extensions.some((ext) => existsSync(join(dir, name + ext))));
   return found;
 }
 
