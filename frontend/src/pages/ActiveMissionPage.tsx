@@ -48,8 +48,8 @@ export default function ActiveMissionPage() {
   const isCompleted = mission.status === 'completed'
   const pctRemaining = mission.budgetUsdc > 0 ? (mission.balanceUsdc / mission.budgetUsdc) * 100 : 0
   const mbLeft = estimateMb(mission.balanceUsdc, mission.destination.pricePerMbUsdc)
-  const simulated = isDemoMode || !caps?.solanaProgramId
-  const networkLabel = simulated ? 'Simulated' : 'Solana Devnet'
+  const simulated = isDemoMode
+  const networkLabel = isDemoMode ? 'Demo mode' : caps?.solanaProgramId ? 'Solana Devnet' : 'Program not set'
 
   async function handleSimulate() {
     setError(null)
@@ -105,7 +105,7 @@ export default function ActiveMissionPage() {
           : 'DATA PAUSED'
         : 'LINK ACTIVE'
 
-  const providerLabel = isDemoMode || mission.isMock !== false ? 'Citrus Mobile (simulated)' : 'Citrus Mobile'
+  const providerLabel = mission.isMock === false && !isDemoMode ? 'eSIM provider' : 'Sample test eSIM'
   const iccidDisplay = mission.iccid || mission.esim?.iccid || '—'
 
   function scrollToActivity() {
@@ -135,7 +135,7 @@ export default function ActiveMissionPage() {
                 <h3 id="finish-title" className="font-display text-xl font-bold text-textprimary">End the mission?</h3>
                 <p className="text-sm text-textsecondary leading-relaxed">
                   Your eSIM is turned off, the final usage is settled in one transaction and the rest of your deposit goes back to your
-                  wallet.{simulated && ' (Simulated.)'}
+                  wallet.{simulated && ' (Demo mode.)'}
                   {meterAttests && caps?.escrowAutomation && ' Nothing to approve in your wallet.'}
                 </p>
                 <div className="flex gap-3 pt-2">
@@ -205,7 +205,7 @@ export default function ActiveMissionPage() {
                     ? finishResult.wallet
                       ? `Done. The unused part of your deposit went to ${finishResult.wallet.address.slice(0, 4)}…${finishResult.wallet.address.slice(-4)}. In Phantom or Solflare look under Tokens → USDC.`
                       : 'Done. The unused part of your deposit was released to your wallet.'
-                    : 'This is the quote for one close. The escrow program is not deployed, so nothing was sent. Run npm run solana:deploy, then end the mission from Phantom or Solflare.'}
+                    : 'This is the quote for one close. Nothing was sent. A close needs a voucher from the meter key. Without that key, Refund after timeout returns the unused deposit 7 days after the last deposit, top-up, or claim.'}
                 </p>
                 <button
                   type="button"
@@ -293,7 +293,7 @@ export default function ActiveMissionPage() {
         <MetricCard label="DATA USED" value={fmtMb(mission.consumedMb)} icon="wifi_tethering" iconColor="text-[#B9A6FF]" />
         <MetricCard label="DATA LEFT" value={`≈ ${fmtMb(mbLeft)}`} icon="signal_cellular_alt" iconColor="text-tealbrand" />
         <MetricCard label="DAILY LIMIT" value={`${fmtUsdc(mission.dailyLimitUsdc, 2)} USDC`} icon="timelapse" iconColor="text-starlight" />
-        <MetricCard label="CARRIER" value={isDemoMode || mission.isMock !== false ? 'Citrus (sim)' : 'Citrus Mobile'} icon="sim_card" iconColor="text-online" />
+        <MetricCard label="CARRIER" value={providerLabel} icon="sim_card" iconColor="text-online" />
       </div>
 
       {/* 4. Quick actions */}
@@ -362,7 +362,7 @@ export default function ActiveMissionPage() {
       <div className="p-5 rounded-2xl bg-primaryviolet-light border border-primaryviolet/30 flex flex-col gap-3 mb-6">
         <div className="flex items-center gap-2 text-[#B9A6FF] font-mono text-xs font-bold tracking-wider uppercase">
           <span className="material-symbols-outlined text-base">smart_toy</span>
-          AI COPILOT
+          BUDGET ASSISTANT
         </div>
         <div className="flex items-start gap-3">
           <div className={`w-10 h-10 shrink-0 animate-float-ship ${flash ? 'scale-125' : ''} transition-transform`}>

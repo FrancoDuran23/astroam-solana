@@ -38,7 +38,6 @@ export default function MissionSetupPage() {
 
   // API payment flow state
   const [paymentIntent, setPaymentIntent] = useState<PaymentIntentInfo | null>(null)
-  const [txHashInput, setTxHashInput] = useState('')
   const [paymentValidating, setPaymentValidating] = useState(false)
 
   // A trip whose deposit went through but was never activated (the page was closed
@@ -48,8 +47,9 @@ export default function MissionSetupPage() {
   const stalledTrip =
     !isDemoMode && !paymentIntent && !activating && !preparing && mission?.status === 'paid' && !mission.iccid ? mission : null
 
-  const simulated = isDemoMode || !caps?.solanaProgramId
-  const networkLabel = simulated ? 'Simulated payments' : 'Solana Devnet'
+  // Demo mode is explicit (`VITE_ASTROAM_MODE=demo`). A missing program id is not a reason to fake a payment.
+  const simulated = isDemoMode
+  const networkLabel = isDemoMode ? 'Demo mode' : caps?.solanaProgramId ? 'Solana Devnet' : 'Program not set'
 
   function update(field: string, value: unknown) {
     setData((prev) => ({ ...prev, [field]: value }))
@@ -100,7 +100,8 @@ export default function MissionSetupPage() {
     setError(null)
     setPaymentValidating(true)
     try {
-      const txHash = txHashInput.trim() || `0x${Date.now().toString(16)}${Math.random().toString(16).slice(2, 10)}`
+      if (!isDemoMode) throw new Error('Connect a wallet. This server is not in demo mode.')
+      const txHash = `demo-${Date.now().toString(16)}`
       const res = await confirmPayment(paymentIntent.intentId, txHash)
       if (!res.valid) throw new Error('The deposit was not accepted.')
       setPaymentIntent(null)
@@ -167,7 +168,7 @@ export default function MissionSetupPage() {
 
   return (
     <MobileAppShell title={`NEW MISSION (${step}/4)`} showBack showBottomNav={false}>
-      {activating && <ActivationOverlay simulated={simulated} onComplete={() => navigate('/mission/esim')} />}
+      {activating && <ActivationOverlay paymentsSimulated={simulated} onComplete={() => navigate('/mission/esim')} />}
 
       {/* Server error banner */}
       {!isDemoMode && backendError && (
@@ -285,7 +286,7 @@ export default function MissionSetupPage() {
               </div>
               {simulated && (
                 <span className="self-start sm:self-auto px-2.5 py-1 rounded-full text-xs font-mono font-bold bg-starlight/10 text-starlight border border-starlight/30">
-                  SIMULATED
+                  DEMO MODE
                 </span>
               )}
             </div>
@@ -297,7 +298,7 @@ export default function MissionSetupPage() {
                 onDeposited={handleWalletDeposit}
                 label={`Pay ${paymentIntent.amount} USDC with wallet`}
               />
-            ) : (
+            ) : simulated ? (
               <>
                 <div className="flex flex-col items-center gap-6">
                   {paymentIntent.qr && (
@@ -314,34 +315,23 @@ export default function MissionSetupPage() {
                 </div>
 
                 <div className="border-t border-cardborder pt-4">
-                  {!simulated && (
-                    <>
-                      <label htmlFor="tx-hash" className="block font-mono text-xs text-textsecondary mb-1">
-                        TRANSACTION HASH
-                      </label>
-                      <input
-                        id="tx-hash"
-                        type="text"
-                        value={txHashInput}
-                        onChange={(e) => setTxHashInput(e.target.value)}
-                        placeholder="transaction signature"
-                        className="w-full mb-3 px-4 py-3 rounded-xl border border-[#6B6E9E] bg-warmneutral font-mono text-xs text-textprimary focus:outline-none focus:border-primaryviolet"
-                      />
-                    </>
-                  )}
                   <button
                     type="button"
-                    disabled={paymentValidating || (!simulated && !txHashInput.trim())}
+                    disabled={paymentValidating}
                     onClick={() => void handleConfirmPaymentSubmit()}
                     className="w-full px-6 py-3.5 rounded-full bg-tealbrand text-[#04161A] font-sans text-sm font-bold uppercase tracking-wider shadow-[0_0_22px_rgba(47,208,221,0.5)] hover:opacity-90 disabled:opacity-50 transition-all flex items-center justify-center gap-2 min-h-[48px]"
                   >
                     <span className={`material-symbols-outlined text-base ${paymentValidating ? 'animate-spin' : ''}`}>
                       {paymentValidating ? 'refresh' : 'check_circle'}
                     </span>
-                    {simulated ? 'SIMULATE DEPOSIT' : 'CONFIRM DEPOSIT'}
+                    SIMULATE DEPOSIT (DEMO MODE)
                   </button>
                 </div>
               </>
+            ) : (
+              <div role="status" className="rounded-2xl border border-starlight/40 bg-starlight/10 p-4 text-sm text-starlight">
+                This server has no Solana escrow program id. A deposit is not simulated. Run <span className="font-mono">npm run solana:deploy</span> and set <span className="font-mono">SOLANA_PROGRAM_ID</span> and <span className="font-mono">SOLANA_PAYEE_ADDRESS</span>, then restart the API.
+              </div>
             )}
 
             <p className="text-center font-mono text-[11px] text-textsecondary">Intent {shortTx(paymentIntent.intentId)}</p>

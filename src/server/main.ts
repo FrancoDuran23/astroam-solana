@@ -16,6 +16,7 @@ import type { CitrusWebhooksRouteOptions } from "./routes/citrus-webhooks.ts";
 
 const env = process.env;
 const port = Number(env.PORT) > 0 ? Number(env.PORT) : 8080;
+const host = env.HOST?.trim() || "0.0.0.0";
 const dataDir = env.DATA_DIR || "./data";
 const log = (line: Record<string, unknown>) => process.stdout.write(`${JSON.stringify(line)}\n`);
 
@@ -80,8 +81,8 @@ if (env.CONNECTIVITY_PROVIDER === "citrus" && env.CITRUS_WEBHOOK_SECRET) {
 
 const app = createServerApp({ productService, ...(citrusWebhooks !== undefined ? { citrusWebhooks } : {}) });
 
-app.listen(port, () => {
-  log({ level: "info", msg: `astroam server listening on :${port}`, network });
+app.listen(port, host, () => {
+  log({ level: "info", msg: `astroam server listening on ${host}:${port}`, network });
 });
 
 if (escrowChain !== undefined) {

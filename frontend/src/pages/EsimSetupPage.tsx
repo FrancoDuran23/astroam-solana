@@ -20,7 +20,7 @@ export default function EsimSetupPage() {
           <span className="material-symbols-outlined text-4xl text-alerta mb-3">warning</span>
           <h2 className="font-display text-xl font-bold text-textprimary mb-2">No active mission</h2>
           <p className="font-sans text-sm text-textsecondary mb-6">
-            Create a new mission to get your Citrus Mobile eSIM profile.
+            Create a new mission to see a sample test eSIM. A live provider is not connected.
           </p>
           <button
             type="button"
@@ -36,9 +36,9 @@ export default function EsimSetupPage() {
 
   const esim = mission.esim || {
     iccid: mission.iccid || `fake_${mission.id.slice(0, 8)}`,
-    lpaString: `LPA:1$rsp.citrusmobile.com$ASTROAM_${mission.id.toUpperCase()}`,
-    qrCode: `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="220" height="220" viewBox="0 0 200 200"><rect width="200" height="200" fill="%23FFFFFF" rx="16"/><rect x="20" y="20" width="40" height="40" fill="%236941FF"/><rect x="140" y="20" width="40" height="40" fill="%236941FF"/><rect x="20" y="140" width="40" height="40" fill="%236941FF"/><rect x="80" y="80" width="40" height="40" fill="%2300F0FF"/><text x="100" y="180" fill="%230F172A" font-size="10" font-family="sans-serif" text-anchor="middle">CITRUS eSIM</text></svg>`,
-    directInstallUrl: `https://citrusmobile.com/install?iccid=${mission.iccid || mission.id}`,
+    lpaString: `LPA:1$sample.invalid$ASTROAM-TEST-${mission.id.toUpperCase()}`,
+    qrCode: `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="220" height="220" viewBox="0 0 200 200"><rect width="200" height="200" fill="%23FFFFFF" rx="16"/><rect x="20" y="20" width="40" height="40" fill="%236941FF"/><rect x="140" y="20" width="40" height="40" fill="%236941FF"/><rect x="20" y="140" width="40" height="40" fill="%236941FF"/><rect x="80" y="80" width="40" height="40" fill="%2300F0FF"/><text x="100" y="180" fill="%230F172A" font-size="10" font-family="sans-serif" text-anchor="middle">SAMPLE eSIM</text></svg>`,
+    directInstallUrl: '',
     status: mission.esimStatus || 'active',
     isMock: mission.isMock ?? true,
   }
@@ -67,13 +67,11 @@ export default function EsimSetupPage() {
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className="font-mono text-[11px] font-bold text-[#B9A6FF] tracking-widest uppercase">
-              [ CITRUS MOBILE // INSTALL ]
+              [ SAMPLE TEST eSIM // INSTALL ]
             </span>
-            {isDemo && (
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-starlight/10 text-starlight border border-starlight/30">
-                SIMULATED
-              </span>
-            )}
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-starlight/10 text-starlight border border-starlight/30">
+              {isDemo ? 'SAMPLE — NOT A LIVE LINE' : 'PROVIDER PROFILE'}
+            </span>
           </div>
           <h1 className="font-display text-2xl sm:text-3xl font-bold text-textprimary">
             INSTALL YOUR eSIM
@@ -109,10 +107,10 @@ export default function EsimSetupPage() {
               <div className="absolute inset-0 bg-[#0A0B1F]/90 backdrop-blur-sm rounded-2xl flex flex-col items-center justify-center p-3 text-center">
                 <span className="material-symbols-outlined text-tealbrand text-3xl mb-1">qr_code_2</span>
                 <span className="font-mono text-xs font-bold text-white uppercase tracking-wider">
-                  SIMULATED QR
+                  SAMPLE TEST eSIM
                 </span>
                 <span className="font-sans text-[11px] text-white/70 mt-1">
-                  Use the LPA code in the demo
+                  This code does not install a live line
                 </span>
               </div>
             )}
@@ -286,10 +284,12 @@ export default function EsimSetupPage() {
           <span className="material-symbols-outlined text-online text-2xl">verified</span>
           <div>
             <p className="font-sans font-bold text-sm text-textprimary">
-              Profile provided by Citrus Mobile
+              {isDemo ? 'Sample test eSIM. No carrier is connected yet.' : 'eSIM profile from the connected provider.'}
             </p>
             <p className="font-sans text-xs text-textsecondary">
-              Your data is backed by the USDC in your trip escrow; AstroAm tops up the eSIM as you use it.
+              {isDemo
+                ? 'Your USDC stays in the trip escrow. A wholesale eSIM provider is not wired up in this demo.'
+                : 'The server is using the provider selected by CONNECTIVITY_PROVIDER. This screen does not name a brand unless that provider issued the profile.'}
             </p>
           </div>
         </div>

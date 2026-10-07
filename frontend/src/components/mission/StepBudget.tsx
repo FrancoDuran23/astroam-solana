@@ -72,7 +72,7 @@ export default function StepBudget({
             <>
               <p className="font-display text-2xl font-bold text-textprimary">{fmtMb(estimatedMb)}</p>
               <p className="text-xs text-textsecondary mt-0.5">
-                at {destination.pricePerMbUsdc} USDC/MB in {destination.name}. <span className="text-[11px] text-textsecondary/80">Actual usage is reported by the carrier, Citrus Mobile.</span>
+                at {destination.pricePerMbUsdc} USDC/MB in {destination.name}. <span className="text-[11px] text-textsecondary/80">This is a sample rate. A live carrier is not connected yet, so nothing here is a real data charge.</span>
               </p>
             </>
           ) : (
@@ -110,7 +110,7 @@ export default function StepBudget({
       <div className="flex flex-col gap-4">
         <Toggle
           label="Pause data automatically at the limit"
-          sublabel="The copilot cuts data when the daily budget runs out."
+          sublabel="A rule in the app pauses data when the daily limit runs out. It is not a language model."
           checked={autoPauseAtLimit}
           onChange={(v) => onChange('autoPauseAtLimit', v)}
           accent="tealbrand"

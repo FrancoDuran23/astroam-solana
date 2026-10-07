@@ -1,0 +1,50 @@
+# Render blueprint for the AstroAm API.
+# Public values only. Secret keys are sync: false so Render asks for them
+# in the dashboard and they never land in git.
+services:
+  - type: web
+    name: astroam-api
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm run server
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22.18.0"
+      - key: HOST
+        value: 0.0.0.0
+      - key: CONNECTIVITY_PROVIDER
+        value: fake
+      - key: PAYMENT_RAIL
+        value: fake
+      - key: ASTROAM_LIVE_ENABLED
+        value: "false"
+      - key: ENABLE_DEMO_TRAFFIC
+        value: "true"
+      - key: SOLANA_CLUSTER
+        value: devnet
+      - key: SOLANA_RPC_URL
+        value: https://api.devnet.solana.com
+      - key: SOLANA_USDC_MINT
+        value: 4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
+      - key: SOLANA_TIMEOUT_SECONDS
+        value: "604800"
+      - key: SOLANA_ESCROW_SESSION_KEYS
+        value: "true"
+      - key: SOLANA_PROGRAM_ID
+        sync: false
+      - key: SOLANA_PAYEE_ADDRESS
+        sync: false
+      - key: SOLANA_METER_PUBKEY
+        sync: false
+      - key: SOLANA_METER_KEYPAIR_JSON
+        sync: false
+      - key: SOLANA_OPERATOR_KEYPAIR_JSON
+        sync: false
+      - key: FRONTEND_ORIGIN
+        sync: false
+      - key: CITRUS_API_KEY
+        sync: false
+      - key: CITRUS_WEBHOOK_SECRET
+        sync: false

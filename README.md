@@ -1,10 +1,101 @@
-# AstroAm en Solana
+# AstroAm
 
-Demo para **Colosseum / Superteam Argentina** (cierra el 12/10/2026). El viajero deposita USDC en Solana **devnet**, el consumo se mide off-chain con un vale acumulativo firmado por la clave del medidor de AstroAm, y un solo cierre paga a AstroAm lo usado y devuelve el resto. Si nadie cierra, el timeout paga al payee el último monto atestiguado y devuelve solo el resto al viajero.
+Prepaid travel data: you lock USDC on Solana, pay only for what a meter attests, and the rest comes back to your wallet.
 
-La app base vino del build de Stellar ([FrancoDuran23/stellar_jujuy_dev@a19ed4d](https://github.com/FrancoDuran23/stellar_jujuy_dev/tree/a19ed4d)). El canal de Soroban no es el camino de pago de esta demo.
+Demo for Colosseum / Superteam Argentina. Deadline: Sunday 11 October 2026, 23:59 ART. The traveler app started from the Stellar build ([FrancoDuran23/stellar_jujuy_dev@a19ed4d](https://github.com/FrancoDuran23/stellar_jujuy_dev/tree/a19ed4d)). The Soroban channel is not the payment path of this demo.
 
-## Team & roles
+## Problem
+
+Roaming plans are sold in big blocks. A weekend trip still pays for a week or a pile of gigabytes, and the unused part expires. The bill shows up later.
+
+## Solution
+
+You pick a country and a USDC budget. One wallet transaction deposits Circle devnet USDC into an escrow the program owns. Usage is measured off-chain. AstroAm's meter key signs a running total. One close pays that total to AstroAm and sends the remainder back. If nobody closes, a timeout does the same split after 7 days.
+
+The eSIM screen in this demo is a sample profile. A live carrier is not connected.
+
+The native program in `programs/astroam-escrow` does not debit per megabyte:
+
+1. **deposit** — the traveler puts USDC in the escrow vault. The same transaction can register a session key. That key does not sign vouchers.
+2. Usage is measured off-chain. The **meter key** stored in the program config signs one cumulative voucher, ed25519 over `(program id, escrow id, cumulative amount)`. The traveler and the session key cannot sign it.
+3. **checkpoint** — writes the latest meter voucher on the escrow. No USDC moves, and the timeout clock does not restart.
+4. **claim** — pays the payee the part of the voucher that is not paid yet, and leaves the escrow open. This restarts the timeout.
+5. **close** — requires a meter voucher between what was already attested and the deposit. Pays the rest to the payee and refunds what remains, in the same transaction.
+6. **refund** — `SOLANA_TIMEOUT_SECONDS` (7 days by default) after the deposit, the last top-up, or the last claim, pays the payee the attested amount that was not collected and returns only the rest to the traveler. A checkpoint does not move that deadline.
+7. **topUp** — the same traveler can add USDC before close.
+
+Anyone can send checkpoint, claim, close, and refund. The meter signature sets the amount. The destination is the configured payee or the traveler. The charge never exceeds the deposit.
+
+## Why Solana
+
+Colosseum reviews products on Solana devnet. That is the cluster Phantom can point at, and the one with a public faucet and Circle's devnet USDC. A local validator is invisible to a judge's wallet. Solana testnet is a different cluster and does not have this USDC mint. Mainnet is out of scope.
+
+USDC mint (Circle, 6 decimals, SPL Token): `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU`
+
+[Circle's address list](https://developers.circle.com/stablecoins/usdc-contract-addresses)
+
+`getAccountInfo` on `https://api.devnet.solana.com` returned an 82-byte account owned by `TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA` (classic SPL Token, not Token-2022). Byte 44 (decimals) is 6 and byte 45 (initialized) is 1. The mint account does not store the symbol; Circle documents this mint as USDC. The program rejects a mint that does not have 6 decimals.
+
+The base app's meter counts in 7-decimal raw units (1 raw = 1e-7 USDC). That number is not sent on-chain. 5 USDC is `5_000_000` atomic units, not `50_000_000`.
+
+## Live devnet program
+
+This escrow **is deployed** on Solana devnet. `npm run solana:deploy` printed program id `HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk`. Its config (`4igZjvwU4sfiu4dsRAzcyk2PqQGBgZqhJ8ddnczXpy3o`, 106 bytes) stores:
+
+| Field | Value |
+|---|---|
+| Payee and upgrade authority (the deployer) | `9NMAvdKGJibTUFW4mWRfVd4sZRpLNo3fQCQMqdrXXV89` |
+| Meter key | `3WqaNhVVCCnabBLGA9YWviQHDvo6fTmX1Y9otcmsdB7k` |
+| Mint | `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU` (Circle USDC) |
+| Timeout | 604800 s (7 days) |
+
+| Account or transaction | Solana Explorer (devnet) |
+|---|---|
+| Program | [HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk](https://explorer.solana.com/address/HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk?cluster=devnet) |
+| Config | [4igZjvwU4sfiu4dsRAzcyk2PqQGBgZqhJ8ddnczXpy3o](https://explorer.solana.com/address/4igZjvwU4sfiu4dsRAzcyk2PqQGBgZqhJ8ddnczXpy3o?cluster=devnet) |
+| Initialize | [5sCmauno…bk8h5Gxp](https://explorer.solana.com/tx/5sCmaunoJLppYh6wgzcbY3hmCD9w52HuK9D8HYLWzPpKdrqxotM3fzW4gRXds5jZWNWov4xYpxzttkoZbk8h5Gxp?cluster=devnet) |
+| Latest program deploy | [3jqc3Z5m…gmGXpqs](https://explorer.solana.com/tx/3jqc3Z5mLvPeyg3bj81TnTbbNamBAEfbYu6c8QxVj9nV7TQsymy3CTWF4W2BdPwjaxBJSRpotyrxayjizgmGXpqs?cluster=devnet) |
+
+Those public addresses are in `.env.example`. With `cp .env.example .env`, the Phantom or Solflare deposit button sends USDC to this program. Only the meter key can sign the voucher that allows a close, so automatic close, checkpoint, and claim run only on an API that has `SOLANA_METER_KEYPAIR` (and `SOLANA_OPERATOR_KEYPAIR` to send them). Without that key, a deposit still works. The timeout refund releases it later.
+
+### Live on devnet
+
+One end-to-end run on this program, 2026-10-07 17:39–17:41 UTC. Signatures come from `getSignaturesForAddress` on `HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk`. The traveler (`C1pGjANXS6wN28nuririx4MymgCDGPuydqjsUQqa7KZ2`) signed only the deposit. The payee key signed the checkpoints, the claims, and the close.
+
+The deposit was 2.5 USDC. Three checkpoints attested 0.625, then 1.25, then 1.875 USDC. Two claims paid the payee 0.625 and then 1.25 (1.875 in total). The close returned the remaining 0.625 USDC to the traveler.
+
+| Step | Solana Explorer (devnet) |
+|---|---|
+| Program | [HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk](https://explorer.solana.com/address/HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk?cluster=devnet) |
+| Config | [4igZjvwU4sfiu4dsRAzcyk2PqQGBgZqhJ8ddnczXpy3o](https://explorer.solana.com/address/4igZjvwU4sfiu4dsRAzcyk2PqQGBgZqhJ8ddnczXpy3o?cluster=devnet) |
+| Deposit, 2.5 USDC | [3XsX6Q3i…4BbTAxU](https://explorer.solana.com/tx/3XsX6Q3i2JLq1GTZdsv1SUyUmoM37R8whLmAz9AcQ76VwwGaW2sQUJ2FrRkJi1pCU4n5BiYAv9Ue4z6nZ4BbTAxU?cluster=devnet) |
+| Checkpoint, attested 0.625 | [3PipJ4BJ…weUuf22](https://explorer.solana.com/tx/3PipJ4BJemMX8YVRyDwirttRmNHZZWC19iDZg7fvScYKNdYf4TFXDZmMu3STwr44re5MYx4FZv2G1u8PXweUuf22?cluster=devnet) |
+| Claim, 0.625 to the payee | [5AjKgHFa…8ajhZpU](https://explorer.solana.com/tx/5AjKgHFaiDKo7t3WC53Wc6v413aUkgrpJ2d71i7jBwWZmjU298tPohpaudW5bcaEZHTRdhTsthki5ZBrk8ajhZpU?cluster=devnet) |
+| Checkpoint, attested 1.25 | [3i46A5dC…D6Cu8Tv](https://explorer.solana.com/tx/3i46A5dCRVeySLchrCZG1euAig6sn7wJTTVWZ9pkcJQmFvZprqxjNdE5rTwbSZbJiu5iwLYozysMafoLPD6Cu8Tv?cluster=devnet) |
+| Checkpoint, attested 1.875 | [5tajJ5EE…fcoszz](https://explorer.solana.com/tx/5tajJ5EEwt4GUTSCvpJJFci6Lbj6LaUPbt9977qemYgas3zcgkBWvfy3JL3i8cstQv2z2gPsTJ2kit34afcoszz?cluster=devnet) |
+| Claim, 1.25 to the payee | [3qYhLhiQ…AAb7b6f](https://explorer.solana.com/tx/3qYhLhiQdX84om8KQ44j8EzchQFLhdt4wdEiPdytzkwGUR6xiGq9D17dPeRri8KvFwKrVsrKLhMnFHBF3AAb7b6f?cluster=devnet) |
+| Close, 0.625 back to the traveler | [64ekDSSP…36cG3W8](https://explorer.solana.com/tx/64ekDSSP1CiGpoRb4zf65AgV4XU1rFgTfCu5oVX2UFR98qoZ3toKVn6i7rHDTGCbp4AGp51mti6dfUgeM36cG3W8?cluster=devnet) |
+
+The config grew to 106 bytes to store the meter key, so the first program, at `8QXPo6yVxZuC3goYzHVLsxVkE1J6BaEqZvfW9e3Do2uq`, could not take this code with `--upgrade`. [That first program](https://explorer.solana.com/address/8QXPo6yVxZuC3goYzHVLsxVkE1J6BaEqZvfW9e3Do2uq?cluster=devnet) stays on devnet (payee `GmqSpjbis6DZV4easxKdPpRZmhx7RBoDJDsFB2psnYDx`, no meter key). Its deploy was `4APAdDDXSVWkkuqWSmhwJvB7GZDoqbtqZcEivqjsNJCYGFUNQEvsRRYM2ctxzrAVohbxrk4v5pVUSbygvmNZSiMq` and its initialize was `3QdiV1oBvnbXEFDzdi43LVEED6dgGmnadwjtkti9D2mscwoPVqqx2Zk81aBfCVsLCEbXbeefdFrZwgnJNXSJJNy7`. Its escrows can still close and refund. `.env.example` does not point at it.
+
+The private keys (`id.json` for the deployer, `meter.json` for the meter, and the program keypair under `programs/astroam-escrow/target/deploy/`) are not in the repo and will not be. Whoever has them should keep a backup off the machine. Without `id.json` you cannot upgrade the program or move collected USDC. Without `meter.json` the API cannot sign vouchers for this program.
+
+## Architecture
+
+```
+wallet (Phantom or Wallet Standard)
+  → deposit USDC into the escrow vault (one transaction)
+meter key (off-chain)
+  → signs the cumulative usage voucher
+backend
+  → checkpoint / claim / close, or the wallet submits them
+program
+  → pays the payee the attested amount, refunds the rest
+```
+
+The eSIM provider is behind `CONNECTIVITY_PROVIDER`. The default is `fake` (a sample profile in memory). `citrus` exists in the code and stays off unless that env var is set. This demo does not call it.
+
+### Team & roles
 
 Team of four, based in Jujuy, Argentina, working full-time remote.
 
@@ -15,39 +106,7 @@ Team of four, based in Jujuy, Argentina, working full-time remote.
 | Daniel Palermo | [@DanielPalermoo](https://github.com/DanielPalermoo) | Backend and metering | Traffic meter, Soroban adapter, and CosmoPay gateway (Stellar build) |
 | Joel | [@Joel010999](https://github.com/Joel010999) | Frontend | Traveler app, mobile, eSIM flow in the UI, and product API (Stellar build) |
 
-## Video demo
-
-[`docs/demo/AstroAm-demo-EN.mp4`](docs/demo/AstroAm-demo-EN.mp4) (2:28, en inglés). Cómo se grabó: [`docs/demo/recording`](docs/demo/recording/README.md).
-
-## Por qué devnet
-
-Colosseum juzga el producto en Solana devnet: es el cluster al que Phantom puede apuntar y el que tiene faucet. No es localnet (la wallet del juez no habla con un validador local) ni testnet de Solana (otro cluster, sin el USDC que publica Circle). Mainnet no hace falta.
-
-## USDC
-
-Mint de Circle en Solana devnet, el que publican en [USDC contract addresses](https://developers.circle.com/stablecoins/usdc-contract-addresses):
-
-`4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU`
-
-`getAccountInfo` contra `https://api.devnet.solana.com` devolvió una cuenta de 82 bytes, dueña de `TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA` (SPL Token clásico, no Token-2022). El byte 44 (decimals) es 6 y el byte 45 (inicializado) es 1. La cuenta mint no guarda el símbolo; Circle documenta este mint como USDC. El programa rechaza un mint que no tenga 6 decimales.
-
-El medidor de la app base cuenta en raw de 7 decimales (1 raw = 1e-7 USDC). Ese número no se manda on-chain. 5 USDC son `5_000_000` unidades, no `50_000_000`.
-
-## Qué hace el escrow
-
-Programa nativo en `programs/astroam-escrow` (no debita por MB):
-
-1. **deposit** — el viajero deja USDC en un vault del PDA del escrow. Puede registrar una clave de sesión en esa misma transacción. Esa clave no firma vales.
-2. El consumo se mide off-chain. Un vale acumulativo lo firma la **clave del medidor** guardada en la config del programa, con ed25519 sobre `(program id, escrow id, monto acumulado)`. Ni el viajero ni la clave de sesión pueden firmarlo. Nada de eso es una transacción por MB.
-3. **checkpoint** — graba en el escrow el último vale del medidor, sin mover USDC y sin reiniciar el timeout.
-4. **claim** — paga al payee la parte del vale que todavía no cobró y deja el escrow abierto. Reinicia el timeout.
-5. **close** — exige un vale del medidor, con monto entre lo ya atestiguado y el depósito. Paga el resto y reembolsa lo que queda, en la misma transacción.
-6. **refund** — `SOLANA_TIMEOUT_SECONDS` (7 días por defecto) después del depósito, del último `topUp` o del último `claim`, paga al payee lo atestiguado que no se cobró y devuelve al viajero solo el resto. Un checkpoint no corre ese plazo.
-7. **topUp** — el mismo viajero puede sumar USDC antes del cierre.
-
-Cualquiera puede enviar `checkpoint`, `claim`, `close` y `refund`. El monto lo autoriza la firma del medidor, y el destino es el payee de la config o el viajero. El cobro nunca pasa el depósito.
-
-## Trust model
+### Trust model
 
 AstroAm's meter key is the only key that can sign a usage voucher. The program stores that public key in its config at initialize. `checkpoint`, `claim` and `close` check the signature with the ed25519 precompile, through the instructions sysvar. A voucher signed by the traveler, by the session key registered at deposit, or by the payee is rejected. The traveler therefore cannot block settlement, and cannot understate what was used, by withholding a signature.
 
@@ -74,69 +133,74 @@ solana program set-upgrade-authority <PROGRAM_ID> \
 # or sweep USDC already collected by the current payee to that vault.
 ```
 
-The config grew to 106 bytes to store the meter key, so the first program, at `8QXPo6yVxZuC3goYzHVLsxVkE1J6BaEqZvfW9e3Do2uq`, could not take this code with `--upgrade`. This code was deployed as a new program with `npm run solana:deploy` (below). The first program stays on devnet and its escrows still close and refund, but `.env.example` no longer points at it.
+## Try it in 5 minutes
 
-El escrow **está desplegado en Solana devnet**. El program id que imprimió `npm run solana:deploy` es `HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk`. Su config (`4igZjvwU4sfiu4dsRAzcyk2PqQGBgZqhJ8ddnczXpy3o`, 106 bytes) guarda:
+You need Node 22.18 or newer, Phantom (or another Wallet Standard wallet) on **Devnet**, a little devnet SOL, and Circle devnet USDC. You do not deploy a program. `.env.example` already points at the program above.
 
-| Campo | Valor |
-|---|---|
-| Payee y upgrade authority (el deployer) | `9NMAvdKGJibTUFW4mWRfVd4sZRpLNo3fQCQMqdrXXV89` |
-| Clave del medidor | `3WqaNhVVCCnabBLGA9YWviQHDvo6fTmX1Y9otcmsdB7k` |
-| Mint | `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU` (USDC de Circle) |
-| Timeout | 604800 s (7 días) |
+1. SOL for fees: [faucet.solana.com](https://faucet.solana.com) (`solana airdrop 2` when the public RPC allows it).
+2. USDC: [faucet.circle.com](https://faucet.circle.com), Solana Devnet, mint `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU`.
+3. Start the API and the app:
 
-Esos valores están en `.env.example`. La transacción de initialize es `5sCmaunoJLppYh6wgzcbY3hmCD9w52HuK9D8HYLWzPpKdrqxotM3fzW4gRXds5jZWNWov4xYpxzttkoZbk8h5Gxp` y la del último deploy del código es `3jqc3Z5mLvPeyg3bj81TnTbbNamBAEfbYu6c8QxVj9nV7TQsymy3CTWF4W2BdPwjaxBJSRpotyrxayjizgmGXpqs`.
+   ```bash
+   cp .env.example .env
+   npm install
+   npm run server                         # API on http://localhost:8080
 
-Con `cp .env.example .env` el botón de depósito de Phantom o Solflare manda USDC a ese programa. El vale que permite cerrar lo firma solo la clave del medidor, así que el cierre automático, los `checkpoint` y los `claim` corren únicamente en una API que tenga `SOLANA_METER_KEYPAIR` (y `SOLANA_OPERATOR_KEYPAIR` para mandarlos). Sin esa clave el depósito funciona y lo vuelve a liberar el `refund` del timeout.
+   cd frontend && npm install && npm run dev   # app on http://localhost:5173
+   ```
 
-El primer programa (`8QXPo6yVxZuC3goYzHVLsxVkE1J6BaEqZvfW9e3Do2uq`, payee `GmqSpjbis6DZV4easxKdPpRZmhx7RBoDJDsFB2psnYDx`, sin clave de medidor) sigue en devnet. Su deploy fue `4APAdDDXSVWkkuqWSmhwJvB7GZDoqbtqZcEivqjsNJCYGFUNQEvsRRYM2ctxzrAVohbxrk4v5pVUSbygvmNZSiMq` y su initialize `3QdiV1oBvnbXEFDzdi43LVEED6dgGmnadwjtkti9D2mscwoPVqqx2Zk81aBfCVsLCEbXbeefdFrZwgnJNXSJJNy7`.
+4. Do not create `frontend/.env`. Without `VITE_API_BASE_URL`, Vite forwards `/api` to the backend. Leave `ASTROAM_LIVE_ENABLED=false` and `CONNECTIVITY_PROVIDER=fake`. `PAYMENT_RAIL=fake` keeps demo metering in memory. USDC moves only when the wallet sends deposit, close, or refund.
 
-Las claves privadas (`id.json` del deployer, `meter.json` del medidor y el keypair del programa en `programs/astroam-escrow/target/deploy/`) no están en el repo y no van a estar. Quien las tenga hace un backup fuera de la máquina. Sin `id.json` no se puede actualizar el programa ni mover el USDC cobrado; sin `meter.json` la API no puede firmar vales para este programa.
+5. Open the app, start a mission, and pay with the wallet. The USDC leaves your token account only when you approve the transaction. If both Phantom and Solflare are installed, the app uses Phantom first. Turn Phantom off to try Solflare.
 
-## Desplegarlo
+`VITE_ASTROAM_MODE=demo` is a separate local mode with no chain. It is not the default. The default is `api`.
 
-1. Instalá el CLI de Solana (Agave):
+The traveler signs only the deposit. **Use 250 MB** and the close do not open the wallet. The close needs the meter key, which is not in this repo. **Refund after timeout** pays what was attested and returns the rest. Demo traffic stays on FakeProvider, as a sample profile. The live devnet run above is the one to judge: 2.5 USDC in, 1.875 USDC to the payee, 0.625 USDC back.
+
+Publishing a public URL: [docs/deploy.md](docs/deploy.md).
+
+## Test with your own deploy
+
+To try a meter-signed close on devnet, the API needs the private meter key of that program. The key for the program above is not in the repo, so each teammate deploys their own copy, with their own deployer and their own meter. On devnet that costs nothing and shares no secret. The app in `.env.example` keeps pointing at `HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk`. Replace those addresses only in your local `.env`.
+
+Without a deploy you can still run `npm test`, `npm run solana:test` (the whole program in `solana-program-test`, no keys), and the app with `VITE_ASTROAM_MODE=demo`.
+
+1. Install the Solana CLI (Agave):
 
    ```bash
    sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
    export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
    ```
 
-2. Apuntá a devnet y creá una clave si no tenés:
+2. Point at devnet and create a key if you do not have one:
 
    ```bash
    solana config set --url devnet
    solana-keygen new -o ~/.config/solana/id.json
    ```
 
-3. SOL de devnet para el deployer: [faucet.solana.com](https://faucet.solana.com) (`solana airdrop 2`).
-4. La wallet del viajero (Phantom o Solflare, en **Devnet**) necesita SOL para el fee y USDC de Circle en el mint de arriba: [faucet.circle.com](https://faucet.circle.com).
-5. Exportá el payee que cobra lo usado (puede ser el deployer):
+3. Devnet SOL for the deployer: [faucet.solana.com](https://faucet.solana.com) (`solana airdrop 2`).
+4. The traveler wallet (Phantom or Solflare, on **Devnet**) needs SOL for the fee and Circle USDC at the mint above: [faucet.circle.com](https://faucet.circle.com).
+5. Export the payee that receives used USDC (it can be the deployer):
 
    ```bash
-   export SOLANA_PAYEE_ADDRESS=<pubkey base58>
+   export SOLANA_PAYEE_ADDRESS=<base58 pubkey>
    solana-keygen new -o ~/.config/solana/meter.json
    export SOLANA_METER_KEYPAIR=~/.config/solana/meter.json
-   # opcional: export SOLANA_DEPLOYER_KEYPAIR=~/.config/solana/id.json
-   # opcional: export SOLANA_TIMEOUT_SECONDS=604800
+   # optional: export SOLANA_DEPLOYER_KEYPAIR=~/.config/solana/id.json
+   # optional: export SOLANA_TIMEOUT_SECONDS=604800
    ```
 
-6. Desde la raíz del repo: `npm run solana:deploy`
-7. Copiá las líneas `SOLANA_PROGRAM_ID=`, `SOLANA_PAYEE_ADDRESS=` y `SOLANA_METER_PUBKEY=` que imprime el script a `.env`, y dejá `SOLANA_METER_KEYPAIR` apuntando al archivo de la clave. Reiniciá la API. No pegues una dirección que el script no haya impreso. `npm run solana:upgrade` solo sirve para un programa cuya config ya tiene 106 bytes y el mismo medidor.
+6. From the repo root: `npm run solana:deploy`
+7. Copy the `SOLANA_PROGRAM_ID=`, `SOLANA_PAYEE_ADDRESS=`, and `SOLANA_METER_PUBKEY=` lines the script prints into your local `.env`, and leave `SOLANA_METER_KEYPAIR` pointing at the key file. Restart the API. Do not paste an address the script did not print. `npm run solana:upgrade` only works for a program whose config is already 106 bytes with the same meter.
 
-Sin CLI o sin SOL, `npm run solana:deploy` imprime esos pasos y sale con código 1.
+Without the CLI or without SOL, `npm run solana:deploy` prints those steps and exits with code 1.
 
-## Probar con tu propio deploy
+### On Windows: build and deploy from WSL
 
-Para probar el cierre con vale del medidor en devnet, la API necesita la clave privada del medidor de ese programa. La del programa de arriba no está en el repo, así que cada integrante del equipo despliega su propia copia, con su deployer y su medidor. En devnet es gratis y no comparte ningún secreto.
+`cargo build-sbf` does not work well on native Windows. Build and deploy in Ubuntu (WSL). Keep the API and the frontend on Windows. Every command in this section runs **in the Ubuntu terminal** (`wsl`), not in PowerShell. If PowerShell says it does not recognize `solana-keygen`, you are in the wrong terminal.
 
-Sin deploy ya se puede probar bastante: `npm test`, `npm run solana:test` (el programa entero en `solana-program-test`, sin claves) y la app con `VITE_ASTROAM_MODE=demo`.
-
-### En Windows: compilar y desplegar desde WSL
-
-`cargo build-sbf` no anda bien en Windows nativo. La compilación y el deploy se hacen en Ubuntu (WSL), y la API y el frontend siguen corriendo en Windows. Todos los comandos de esta parte van **en la terminal de Ubuntu** (`wsl`), no en PowerShell: si PowerShell dice que no reconoce `solana-keygen`, es porque estás en la terminal equivocada.
-
-1. Herramientas (una vez):
+1. Tools (once):
 
    ```bash
    sudo apt update && sudo apt install -y build-essential pkg-config libssl-dev libudev-dev curl rsync
@@ -147,110 +211,115 @@ Sin deploy ya se puede probar bastante: `npm test`, `npm run solana:test` (el pr
    source ~/.bashrc && nvm install 22
    ```
 
-   El Node de Windows no sirve dentro de WSL: hace falta este.
+   The Windows Node install does not work inside WSL. You need this one.
 
-2. Claves, guardadas en la carpeta de Windows para que la API las lea después. A `BIP39 Passphrase` respondé con Enter (vacía):
+2. Keys, stored in the Windows folder so the API can read them later. Press Enter at `BIP39 Passphrase` (leave it empty):
 
    ```bash
-   mkdir -p /mnt/c/Users/<usuario>/.config/solana
-   solana-keygen new -o /mnt/c/Users/<usuario>/.config/solana/id.json     # deployer = payee = operador
-   solana-keygen new -o /mnt/c/Users/<usuario>/.config/solana/meter.json  # medidor, otra clave
-   solana config set --url devnet --keypair /mnt/c/Users/<usuario>/.config/solana/id.json
-   solana airdrop 2    # o https://faucet.solana.com
+   mkdir -p /mnt/c/Users/<user>/.config/solana
+   solana-keygen new -o /mnt/c/Users/<user>/.config/solana/id.json     # deployer = payee = operator
+   solana-keygen new -o /mnt/c/Users/<user>/.config/solana/meter.json  # meter, a different key
+   solana config set --url devnet --keypair /mnt/c/Users/<user>/.config/solana/id.json
+   solana airdrop 2    # or https://faucet.solana.com
    ```
 
-3. Una copia del repo en el disco de Linux. Compilar sobre `/mnt/c` falla con `Cannot allocate memory (os error 12)`:
+3. A copy of the repo on the Linux disk. Building on `/mnt/c` fails with `Cannot allocate memory (os error 12)`:
 
    ```bash
    rsync -a --exclude node_modules --exclude target --exclude .git \
-     /mnt/c/<ruta al repo>/ ~/astroam/
+     /mnt/c/<path to the repo>/ ~/astroam/
    cd ~/astroam && npm install
    ```
 
 4. Deploy:
 
    ```bash
-   export CARGO_BUILD_JOBS=2    # 1 si vuelve a faltar memoria
-   export SOLANA_DEPLOYER_KEYPAIR=/mnt/c/Users/<usuario>/.config/solana/id.json
-   export SOLANA_METER_KEYPAIR=/mnt/c/Users/<usuario>/.config/solana/meter.json
+   export CARGO_BUILD_JOBS=2    # 1 if memory runs out again
+   export SOLANA_DEPLOYER_KEYPAIR=/mnt/c/Users/<user>/.config/solana/id.json
+   export SOLANA_METER_KEYPAIR=/mnt/c/Users/<user>/.config/solana/meter.json
    npm run solana:deploy
    ```
 
-   Si corta con `fetch failed` después de compilar, el programa ya se subió y falta el initialize. Corré `export NODE_OPTIONS=--dns-result-order=ipv4first` y volvé a ejecutar `npm run solana:deploy`: usa el mismo keypair de `target/deploy/` y despliega al mismo program id. No borres esa carpeta.
+   If it stops with `fetch failed` after the build, the program is already uploaded and initialize is missing. Run `export NODE_OPTIONS=--dns-result-order=ipv4first` and run `npm run solana:deploy` again. It uses the same keypair in `target/deploy/` and deploys to the same program id. Do not delete that folder.
 
-En Linux o macOS se saltean la copia y las rutas `/mnt/c`: alcanza con los pasos de [Desplegarlo](#desplegarlo).
+On Linux or macOS, skip the copy and the `/mnt/c` paths. The steps under [Test with your own deploy](#test-with-your-own-deploy) are enough.
 
-### Tu `.env`
+### Your `.env`
 
-`cp .env.example .env` y reemplazá con lo que imprimió **tu** deploy:
+`cp .env.example .env`, then replace the three addresses with what **your** deploy printed:
 
 ```bash
-SOLANA_PROGRAM_ID=<el tuyo>
-SOLANA_PAYEE_ADDRESS=<el tuyo>
-SOLANA_METER_PUBKEY=<el tuyo>
+SOLANA_PROGRAM_ID=<yours>
+SOLANA_PAYEE_ADDRESS=<yours>
+SOLANA_METER_PUBKEY=<yours>
 SOLANA_ESCROW_SESSION_KEYS=true
-SOLANA_METER_KEYPAIR=C:/Users/<usuario>/.config/solana/meter.json
-SOLANA_OPERATOR_KEYPAIR=C:/Users/<usuario>/.config/solana/id.json
+SOLANA_METER_KEYPAIR=C:/Users/<user>/.config/solana/meter.json
+SOLANA_OPERATOR_KEYPAIR=C:/Users/<user>/.config/solana/id.json
 ```
 
-Las rutas de las claves van absolutas y en el formato del sistema donde corre la API (en Windows, `C:/...`, no las `/mnt/c/...` que imprime el script). La API no expande `~`. Para ver un `claim` con el tráfico de demo (250 MB son 0,625 USDC), bajá `CLAIM_MIN_USDC` a `0.5`; `FUND_FLOW_INTERVAL_MS=15000` acorta la espera.
+Key paths are absolute and use the format of the machine that runs the API (on Windows, `C:/...`, not the `/mnt/c/...` paths the script prints). The API does not expand `~`. To see a `claim` with demo traffic (250 MB is 0.625 USDC), lower `CLAIM_MIN_USDC` to `0.5`. `FUND_FLOW_INTERVAL_MS=15000` shortens the wait.
 
-Al arrancar `npm run server`, el log tiene que decir `fund flow is automatic` y no `operator key not loaded` ni `meter key not loaded`. `http://localhost:8080/api/capabilities` muestra tu program id y `escrowAutomation: true`.
+When `npm run server` starts, the log should say `fund flow is automatic`, not `operator key not loaded` or `meter key not loaded`. `http://localhost:8080/api/capabilities` shows your program id and `escrowAutomation: true`.
 
-### La wallet del viajero
+### The traveler's wallet
 
-Phantom o Solflare en **Devnet**, con una cuenta distinta de tu deployer: SOL de [faucet.solana.com](https://faucet.solana.com) y USDC de [faucet.circle.com](https://faucet.circle.com) (Solana Devnet). Si tenés las dos extensiones, la app usa Phantom primero: desactivala para probar con Solflare. El viajero firma solo el depósito; ni **Use 250 MB** ni el cierre abren la wallet.
+Phantom or Solflare on **Devnet**, with an account that is not your deployer: SOL from [faucet.solana.com](https://faucet.solana.com) and USDC from [faucet.circle.com](https://faucet.circle.com) (Solana Devnet). If both extensions are installed, the app uses Phantom first: turn it off to test Solflare. The traveler signs only the deposit. Neither **Use 250 MB** nor the close opens the wallet.
 
-### Claves
+### Keys
 
-`id.json`, `meter.json` y `target/deploy/astroam_escrow-keypair.json` no se commitean ni se pegan en un chat. Hacé un backup fuera de la máquina. Una clave de operador no tiene que ser la del payee: cualquier cuenta con SOL de devnet puede mandar `checkpoint`, `claim` y `close`. Solo el barrido a Bridge necesita la del payee.
+`id.json`, `meter.json`, and `target/deploy/astroam_escrow-keypair.json` are not committed and are not pasted into a chat. Keep a backup off the machine. An operator key does not have to be the payee: any account with devnet SOL can send `checkpoint`, `claim`, and `close`. Only the sweep to Bridge needs the payee key.
 
-## Correr la app
+## Automatic fund flow
 
-Node ≥ 22.18.
+Decision: [`docs/decisiones/automatizar-flujo-fondos-citrus-bridge.md`](docs/decisiones/automatizar-flujo-fondos-citrus-bridge.md). The traveler signs **once**, the deposit. After that:
 
-```bash
-cp .env.example .env
-npm install
-npm run server                         # API en http://localhost:8080
-
-cd frontend && npm install && npm run dev   # app en http://localhost:5173
-```
-
-No crees `frontend/.env`: sin `VITE_API_BASE_URL`, Vite reenvía `/api` al backend. Dejá `ASTROAM_LIVE_ENABLED=false` y `CONNECTIVITY_PROVIDER=fake`. `PAYMENT_RAIL=fake` mantiene la medición de demo en memoria; el USDC se mueve solo cuando la wallet manda deposit, close o refund.
-
-La app del viajero es la misma interfaz oscura que AstroAm en Monad (reels, starfield, landing de reembolso). Acá la wallet es Phantom o Solflare, no MetaMask. `.env.example` ya trae el program id de devnet con clave de medidor. Para el cierre con vale del medidor, `SOLANA_METER_KEYPAIR` y `SOLANA_OPERATOR_KEYPAIR` apuntan a los archivos de clave (rutas absolutas). La landing muestra el USDC que volvió a la wallet. **Refund after timeout** paga lo atestiguado y devuelve el resto. El tráfico de demo sigue en FakeProvider, sin Citrus. 250 MB en Brasil a 0,0025 USDC/MB sobre 10 USDC son 0,625 usados y 9,375 devueltos.
-
-## Flujo de fondos automático
-
-Decisión: [`docs/decisiones/automatizar-flujo-fondos-citrus-bridge.md`](docs/decisiones/automatizar-flujo-fondos-citrus-bridge.md). El viajero firma **una sola vez**, el depósito. A partir de ahí:
-
-| Paso | Quién | Qué hace |
+| Step | Who | What it does |
 |---|---|---|
-| Vales | el backend | Después de cada lectura de consumo la clave del medidor firma el vale acumulativo. `POST /api/missions/:id/attest` lo graba en el escrow (`checkpoint`). Sin popup de wallet. |
-| Tramos | el backend | Fondea la eSIM como mucho un tramo (`FUNDING_TRANCHE_CENTS`, $2,50) por delante de lo que cubren los vales, y nunca más de lo que paga el depósito. |
-| Cobro | el backend | Cuando el vale junta `CLAIM_MIN_USDC` sin cobrar, manda un `claim`. |
-| Cierre | el backend | Manda el `close` cuando el viajero termina el viaje (`POST /api/missions/:id/settle`), se gasta el depósito, pasa la fecha de fin o falta un día para el timeout del escrow. |
-| Tesorería | el backend | Barre el USDC cobrado a `BRIDGE_LIQUIDATION_ADDRESS`. |
+| Vouchers | the backend | After each usage read, the meter key signs the cumulative voucher. `POST /api/missions/:id/attest` writes it on the escrow (`checkpoint`). No wallet popup. |
+| Tranches | the backend | Funds the eSIM at most one tranche (`FUNDING_TRANCHE_CENTS`, $2.50) ahead of what the vouchers cover, and never more than the deposit pays. |
+| Collection | the backend | When the unpaid voucher reaches `CLAIM_MIN_USDC`, it sends a `claim`. |
+| Close | the backend | Sends `close` when the traveler ends the trip (`POST /api/missions/:id/settle`), the deposit is spent, the end date has passed, or one day remains before the escrow timeout. |
+| Treasury | the backend | Sweeps collected USDC to `BRIDGE_LIQUIDATION_ADDRESS`. |
 
-Lo que AstroAm puede perder es un tramo: sin un vale nuevo no se fondea más, y un cierre no puede bajar de lo ya cobrado ni de lo ya atestiguado.
+What AstroAm can lose is one tranche: without a new voucher it does not fund more, and a close cannot go below what was already collected or already attested.
 
-Se prende con un deploy nuevo, porque la config ahora guarda la clave del medidor (106 bytes) y el programa ya desplegado no se puede agrandar con `--upgrade`:
+That loop needs the meter key for the program you are running. For the program in `.env.example`, only the person who holds `meter.json` can turn it on. A teammate who does not have that file uses [Test with your own deploy](#test-with-your-own-deploy).
 
-1. `SOLANA_METER_KEYPAIR=<archivo>` y `npm run solana:deploy`. Copiá el `SOLANA_PROGRAM_ID` y el `SOLANA_METER_PUBKEY` que imprime. Con el meter key la API firma los vales. La wallet aprueba el depósito y, si no hay operator key, la transacción de cierre, sin firmar el monto.
-2. `SOLANA_OPERATOR_KEYPAIR=<archivo de la clave>` en `.env`. El backend lee cada depósito del escrow en vez de creerle al pedido, corre el trabajo de fondos cada `FUND_FLOW_INTERVAL_MS` y manda él el `checkpoint`, los `claim` y el `close`. Para barrer a Bridge, esa clave tiene que ser la del payee.
+1. `SOLANA_METER_KEYPAIR=<file>` and `npm run solana:deploy`. Copy the `SOLANA_PROGRAM_ID` and `SOLANA_METER_PUBKEY` it prints into your local `.env`. With the meter key the API signs vouchers. The wallet approves the deposit and, if there is no operator key, the close transaction, without signing the amount.
+2. `SOLANA_OPERATOR_KEYPAIR=<key file>` in `.env`. The backend reads each deposit from the escrow instead of trusting the request, runs the fund job every `FUND_FLOW_INTERVAL_MS`, and sends the `checkpoint`, the `claim`s, and the `close` itself. To sweep to Bridge, that key has to be the payee.
 
-Sin esas variables la API no puede firmar un vale, y el programa viejo sigue rechazando un cierre que no firme el viajero.
+Without those variables the API cannot sign a voucher. The old program still rejects a close the traveler did not sign.
 
-Falta, y no está en el código: abrir la cuenta de Bridge y crear la liquidation address, configurar en Citrus la tarjeta y la auto-recarga, y probar el lazo con una eSIM real. El programa con clave de medidor ya está en devnet (arriba). Si `solana program deploy` dice que la cuenta del programa quedó chica, `solana program extend <program id> <bytes>` la agranda.
+Still not in the code: open the Bridge account and create the liquidation address, set the card and auto-reload on the eSIM provider, and try the loop with a real eSIM. The meter-key program is already on devnet (above). If `solana program deploy` says the program account is too small, `solana program extend <program id> <bytes>` grows it.
 
-## Cheques
+## What is real, and what is not
+
+| Piece | Status |
+|---|---|
+| Escrow program (deposit, checkpoint, claim, close, timeout refund) | Deployed on devnet. The 2026-10-07 run is linked above: deposit 2.5, two claims totaling 1.875 to the payee, close returning 0.625. |
+| Who signed | The traveler signed only the deposit. Checkpoints, claims, and the close were signed by the payee key. |
+| Wallet | Phantom or any Wallet Standard wallet. The app does not embed a mock wallet. |
+| USDC | Circle's devnet mint, once the traveler holds some. |
+| eSIM | Sample test profile from `FakeProvider`. No line is issued. The Citrus adapter stays behind `CONNECTIVITY_PROVIDER=citrus` and is not called. |
+| Budget assistant | Rules in the app (daily limit, 20% warning). No model is called. |
+| Demo video | [`docs/demo/AstroAm-demo-EN.mp4`](docs/demo/AstroAm-demo-EN.mp4) is an older recording. Its picture still says things this README no longer claims. It was not re-recorded: this environment has no Phantom extension and no funded traveler wallet. |
+
+## Roadmap
+
+1. Move the upgrade authority and the payee to a 2-of-3 Squads multisig.
+2. Connect a real eSIM provider (the Citrus adapter is the candidate) and replace the sample profile.
+3. Legal review of the draft terms, including the refund rule and the Argentine right of withdrawal (botón de arrepentimiento), then publish a contact for that request.
+4. Bridge liquidation address for collected USDC, only after the provider account exists. See `docs/decisiones/automatizar-flujo-fondos-citrus-bridge.md`.
+
+## Checks
 
 ```bash
-npm test                               # cotización en 6 decimales, no el raw de 7
-npm run solana:test                    # deposit, checkpoint, claim, close, timeout paga lo atestiguado
+npm test
 npm run check
-cd frontend && npx tsc --noEmit
+npm run solana:test
+cd frontend && npm run typecheck
 ```
 
-`solana:test` corre el programa en `solana-program-test` (el binario BPF no hace falta para los tests). Hace falta Rust 1.85 o más nuevo: una dependencia transitiva usa edition 2024. El `.so` lo produce `cargo build-sbf` dentro de `npm run solana:deploy`.
+`solana:test` runs the program in `solana-program-test`. Rust 1.85 or newer is required. The `.so` is produced by `cargo build-sbf` inside `npm run solana:deploy`.
+
+Terms (draft): the app footer links to `/terms`.

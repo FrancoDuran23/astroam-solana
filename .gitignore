@@ -19,6 +19,9 @@ frontend/.env.*
 # TypeScript incremental build info
 *.tsbuildinfo
 
-# Solana program build
+# Solana program build and keypairs. Never commit a secret key.
 programs/astroam-escrow/target/
 **/*.so
+**/*-keypair.json
+id.json
+meter.json

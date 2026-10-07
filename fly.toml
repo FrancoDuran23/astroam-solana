@@ -1,0 +1,33 @@
+# Fly.io app for the API. Change `app` to a name your Fly org owns
+# (`fly launch` will offer to rewrite this). No secrets belong in this file.
+app = "astroam-api"
+primary_region = "gru"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  HOST = "0.0.0.0"
+  PORT = "8080"
+  CONNECTIVITY_PROVIDER = "fake"
+  PAYMENT_RAIL = "fake"
+  ASTROAM_LIVE_ENABLED = "false"
+  ENABLE_DEMO_TRAFFIC = "true"
+  SOLANA_CLUSTER = "devnet"
+  SOLANA_RPC_URL = "https://api.devnet.solana.com"
+  SOLANA_USDC_MINT = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+  SOLANA_TIMEOUT_SECONDS = "604800"
+  SOLANA_ESCROW_SESSION_KEYS = "true"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    path = "/health"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"

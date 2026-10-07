@@ -3,24 +3,24 @@ import shipSrc from '../../assets/ship-night.png'
 import StarfieldBackground from '../StarfieldBackground'
 import type { ActivationStep } from '../../types/mission'
 
-function stepsFor(simulated: boolean): ActivationStep[] {
-  const tag = simulated ? ' (simulated)' : ''
+function stepsFor(paymentsSimulated: boolean): ActivationStep[] {
+  const tag = paymentsSimulated ? ' (demo mode)' : ''
   return [
     { label: `Deposit confirmed${tag}`, status: 'pending' },
     { label: `Payment channel opened${tag}`, status: 'pending' },
-    { label: 'Provisioning the eSIM profile', status: 'pending' },
+    { label: 'Preparing a sample test eSIM', status: 'pending' },
     { label: 'Mission ready', status: 'pending' },
   ]
 }
 
 type Props = {
   onComplete: () => void
-  /** Payments are simulated (no real chain behind them). */
-  simulated?: boolean
+  /** Demo mode only. The default is a real wallet deposit, not a simulation. */
+  paymentsSimulated?: boolean
 }
 
-export default function ActivationOverlay({ onComplete, simulated = true }: Props) {
-  const [steps, setSteps] = useState<ActivationStep[]>(() => stepsFor(simulated))
+export default function ActivationOverlay({ onComplete, paymentsSimulated = false }: Props) {
+  const [steps, setSteps] = useState<ActivationStep[]>(() => stepsFor(paymentsSimulated))
   const [currentStep, setCurrentStep] = useState(0)
   const [done, setDone] = useState(false)
   const total = steps.length
@@ -68,9 +68,9 @@ export default function ActivationOverlay({ onComplete, simulated = true }: Prop
 
         {/* Title */}
         <div className="flex flex-col items-center gap-1">
-          {simulated && (
+          {paymentsSimulated && (
             <span className="inline-block px-2.5 py-0.5 rounded-full bg-starlight/15 border border-starlight/40 font-mono text-[10px] font-bold text-starlight tracking-wider uppercase mb-1">
-              SIMULATED PAYMENTS
+              DEMO MODE
             </span>
           )}
           <span className="font-mono text-[11px] font-bold text-[#B9A6FF] tracking-widest uppercase">

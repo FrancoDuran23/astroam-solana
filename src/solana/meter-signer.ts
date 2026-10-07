@@ -8,7 +8,7 @@ import { Keypair } from "@solana/web3.js";
 import { decodeBase58 } from "../shared/solana/base58.ts";
 import type { SignedVoucher } from "../shared/solana/escrow.ts";
 import { closeVoucherMessage } from "../shared/solana/voucher.ts";
-import { loadKeypair } from "./EscrowChain.ts";
+import { keypairFromJsonEnv, loadKeypair } from "./EscrowChain.ts";
 
 export type MeterSigner = {
   readonly publicKey: string;
@@ -37,11 +37,15 @@ export function meterSignerFromKeypair(keypair: Keypair): MeterSigner {
 }
 
 /**
- * The meter key the backend signs with, or undefined when `SOLANA_METER_KEYPAIR`
- * is unset. Throws when the path is set but the file cannot be read.
+ * The meter key the backend signs with, or undefined when neither
+ * `SOLANA_METER_KEYPAIR_JSON` nor `SOLANA_METER_KEYPAIR` is set. The JSON form
+ * is for a host that cannot mount a secret file. Throws when a value is set
+ * but cannot be read. The secret is never logged.
  */
 export function loadMeterSigner(env: Record<string, string | undefined>): MeterSigner | undefined {
+  const json = env.SOLANA_METER_KEYPAIR_JSON?.trim();
+  if (json) return meterSignerFromKeypair(keypairFromJsonEnv(json, "SOLANA_METER_KEYPAIR_JSON"));
   const path = env.SOLANA_METER_KEYPAIR?.trim();
   if (!path) return undefined;
-  return meterSignerFromKeypair(loadKeypair(path));
+  return meterSignerFromKeypair(loadKeypair(path, "SOLANA_METER_KEYPAIR"));
 }
