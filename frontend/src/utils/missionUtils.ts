@@ -1,7 +1,7 @@
 import type { Destination } from '../types/mission'
 
-// Rates: Citrus Mobile's public pay-as-you-go rate per GB × 1.35, as USDC
-// per decimal MB (citrusmobile.com/rates, checked 2026-09-23).
+// Sample rates shown in the app, as USDC per decimal MB. A live carrier is not
+// connected, so these figures are not a quote from a provider.
 export const DESTINATIONS: Destination[] = [
   { id: 'brazil', name: 'Brazil', flag: '🇧🇷', network: 'Vivo / TIM / Claro', coverage: '5G / 4G LTE', pricePerMbUsdc: 0.0025 },
   { id: 'mexico', name: 'Mexico', flag: '🇲🇽', network: 'Telcel / AT&T', coverage: '5G / 4G LTE', pricePerMbUsdc: 0.0027 },

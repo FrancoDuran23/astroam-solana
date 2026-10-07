@@ -2,7 +2,7 @@
 
 Prepaid travel data: you lock USDC on Solana, pay only for what a meter attests, and the rest comes back to your wallet.
 
-Demo for Colosseum / Superteam Argentina. The traveler app started from the Stellar build ([FrancoDuran23/stellar_jujuy_dev@a19ed4d](https://github.com/FrancoDuran23/stellar_jujuy_dev/tree/a19ed4d)). The Soroban channel is not the payment path of this demo.
+Demo for Colosseum / Superteam Argentina. Deadline: Sunday 11 October 2026, 23:59 ART. The traveler app started from the Stellar build ([FrancoDuran23/stellar_jujuy_dev@a19ed4d](https://github.com/FrancoDuran23/stellar_jujuy_dev/tree/a19ed4d)). The Soroban channel is not the payment path of this demo.
 
 ## Problem
 
@@ -58,7 +58,23 @@ This escrow **is deployed** on Solana devnet. `npm run solana:deploy` printed pr
 
 Those public addresses are in `.env.example`. With `cp .env.example .env`, the Phantom or Solflare deposit button sends USDC to this program. Only the meter key can sign the voucher that allows a close, so automatic close, checkpoint, and claim run only on an API that has `SOLANA_METER_KEYPAIR` (and `SOLANA_OPERATOR_KEYPAIR` to send them). Without that key, a deposit still works. The timeout refund releases it later.
 
-This environment does not have that meter key, so it did not send a close. It also did not send a deposit: a fresh devnet wallet stayed at 0 SOL (`solana airdrop` returned a rate limit on `https://api.devnet.solana.com`), so it could not pay a fee or request Circle devnet USDC.
+### Live on devnet
+
+One end-to-end run on this program, 2026-10-07 17:39–17:41 UTC. Signatures come from `getSignaturesForAddress` on `HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk`. The traveler (`C1pGjANXS6wN28nuririx4MymgCDGPuydqjsUQqa7KZ2`) signed only the deposit. The payee key signed the checkpoints, the claims, and the close.
+
+The deposit was 2.5 USDC. Three checkpoints attested 0.625, then 1.25, then 1.875 USDC. Two claims paid the payee 0.625 and then 1.25 (1.875 in total). The close returned the remaining 0.625 USDC to the traveler.
+
+| Step | Solana Explorer (devnet) |
+|---|---|
+| Program | [HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk](https://explorer.solana.com/address/HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk?cluster=devnet) |
+| Config | [4igZjvwU4sfiu4dsRAzcyk2PqQGBgZqhJ8ddnczXpy3o](https://explorer.solana.com/address/4igZjvwU4sfiu4dsRAzcyk2PqQGBgZqhJ8ddnczXpy3o?cluster=devnet) |
+| Deposit, 2.5 USDC | [3XsX6Q3i…4BbTAxU](https://explorer.solana.com/tx/3XsX6Q3i2JLq1GTZdsv1SUyUmoM37R8whLmAz9AcQ76VwwGaW2sQUJ2FrRkJi1pCU4n5BiYAv9Ue4z6nZ4BbTAxU?cluster=devnet) |
+| Checkpoint, attested 0.625 | [3PipJ4BJ…weUuf22](https://explorer.solana.com/tx/3PipJ4BJemMX8YVRyDwirttRmNHZZWC19iDZg7fvScYKNdYf4TFXDZmMu3STwr44re5MYx4FZv2G1u8PXweUuf22?cluster=devnet) |
+| Claim, 0.625 to the payee | [5AjKgHFa…8ajhZpU](https://explorer.solana.com/tx/5AjKgHFaiDKo7t3WC53Wc6v413aUkgrpJ2d71i7jBwWZmjU298tPohpaudW5bcaEZHTRdhTsthki5ZBrk8ajhZpU?cluster=devnet) |
+| Checkpoint, attested 1.25 | [3i46A5dC…D6Cu8Tv](https://explorer.solana.com/tx/3i46A5dCRVeySLchrCZG1euAig6sn7wJTTVWZ9pkcJQmFvZprqxjNdE5rTwbSZbJiu5iwLYozysMafoLPD6Cu8Tv?cluster=devnet) |
+| Checkpoint, attested 1.875 | [5tajJ5EE…fcoszz](https://explorer.solana.com/tx/5tajJ5EEwt4GUTSCvpJJFci6Lbj6LaUPbt9977qemYgas3zcgkBWvfy3JL3i8cstQv2z2gPsTJ2kit34afcoszz?cluster=devnet) |
+| Claim, 1.25 to the payee | [3qYhLhiQ…AAb7b6f](https://explorer.solana.com/tx/3qYhLhiQdX84om8KQ44j8EzchQFLhdt4wdEiPdytzkwGUR6xiGq9D17dPeRri8KvFwKrVsrKLhMnFHBF3AAb7b6f?cluster=devnet) |
+| Close, 0.625 back to the traveler | [64ekDSSP…36cG3W8](https://explorer.solana.com/tx/64ekDSSP1CiGpoRb4zf65AgV4XU1rFgTfCu5oVX2UFR98qoZ3toKVn6i7rHDTGCbp4AGp51mti6dfUgeM36cG3W8?cluster=devnet) |
 
 The config grew to 106 bytes to store the meter key, so the first program, at `8QXPo6yVxZuC3goYzHVLsxVkE1J6BaEqZvfW9e3Do2uq`, could not take this code with `--upgrade`. [That first program](https://explorer.solana.com/address/8QXPo6yVxZuC3goYzHVLsxVkE1J6BaEqZvfW9e3Do2uq?cluster=devnet) stays on devnet (payee `GmqSpjbis6DZV4easxKdPpRZmhx7RBoDJDsFB2psnYDx`, no meter key). Its deploy was `4APAdDDXSVWkkuqWSmhwJvB7GZDoqbtqZcEivqjsNJCYGFUNQEvsRRYM2ctxzrAVohbxrk4v5pVUSbygvmNZSiMq` and its initialize was `3QdiV1oBvnbXEFDzdi43LVEED6dgGmnadwjtkti9D2mscwoPVqqx2Zk81aBfCVsLCEbXbeefdFrZwgnJNXSJJNy7`. Its escrows can still close and refund. `.env.example` does not point at it.
 
@@ -139,7 +155,7 @@ You need Node 22.18 or newer, Phantom (or another Wallet Standard wallet) on **D
 
 `VITE_ASTROAM_MODE=demo` is a separate local mode with no chain. It is not the default. The default is `api`.
 
-The traveler signs only the deposit. **Use 250 MB** and the close do not open the wallet. The close needs the meter key, which is not in this repo. **Refund after timeout** pays what was attested and returns the rest. Demo traffic stays on FakeProvider. 250 MB in Brazil at 0.0025 USDC/MB on a 10 USDC deposit is 0.625 used and 9.375 returned.
+The traveler signs only the deposit. **Use 250 MB** and the close do not open the wallet. The close needs the meter key, which is not in this repo. **Refund after timeout** pays what was attested and returns the rest. Demo traffic stays on FakeProvider, as a sample profile. The live devnet run above is the one to judge: 2.5 USDC in, 1.875 USDC to the payee, 0.625 USDC back.
 
 Publishing a public URL: [docs/deploy.md](docs/deploy.md).
 
@@ -280,9 +296,8 @@ Still not in the code: open the Bridge account and create the liquidation addres
 
 | Piece | Status |
 |---|---|
-| Escrow program (deposit, checkpoint, claim, close, timeout refund) | Deployed on devnet. Program, config, initialize, and the latest deploy are linked above. |
-| A deposit from this change | Not sent. The fresh wallet had 0 SOL, so it could not pay a fee or take Circle USDC. A Phantom user with devnet SOL and Circle USDC can deposit into `HgrzvLk…`. |
-| Close from this change | Not sent. The meter private key for `3WqaNh…` is not in this environment. Timeout refund is the path that returns unused USDC without that key, after 7 days. |
+| Escrow program (deposit, checkpoint, claim, close, timeout refund) | Deployed on devnet. The 2026-10-07 run is linked above: deposit 2.5, two claims totaling 1.875 to the payee, close returning 0.625. |
+| Who signed | The traveler signed only the deposit. Checkpoints, claims, and the close were signed by the payee key. |
 | Wallet | Phantom or any Wallet Standard wallet. The app does not embed a mock wallet. |
 | USDC | Circle's devnet mint, once the traveler holds some. |
 | eSIM | Sample test profile from `FakeProvider`. No line is issued. The Citrus adapter stays behind `CONNECTIVITY_PROVIDER=citrus` and is not called. |
@@ -291,11 +306,10 @@ Still not in the code: open the Bridge account and create the liquidation addres
 
 ## Roadmap
 
-1. A teammate who holds the meter key runs checkpoint, close, and a timeout refund on `HgrzvLk…` and adds those explorer links here.
-2. Move the upgrade authority and the payee to a 2-of-3 Squads multisig.
-3. Connect a real eSIM provider (the Citrus adapter is the candidate) and replace the sample profile.
-4. Legal review of the draft terms, including the refund rule and the Argentine right of withdrawal (botón de arrepentimiento), then publish a contact for that request.
-5. Bridge liquidation address for collected USDC, only after the provider account exists. See `docs/decisiones/automatizar-flujo-fondos-citrus-bridge.md`.
+1. Move the upgrade authority and the payee to a 2-of-3 Squads multisig.
+2. Connect a real eSIM provider (the Citrus adapter is the candidate) and replace the sample profile.
+3. Legal review of the draft terms, including the refund rule and the Argentine right of withdrawal (botón de arrepentimiento), then publish a contact for that request.
+4. Bridge liquidation address for collected USDC, only after the provider account exists. See `docs/decisiones/automatizar-flujo-fondos-citrus-bridge.md`.
 
 ## Checks
 

@@ -105,7 +105,7 @@ await cap('Deposit step → channel opened → a <b>sample test eSIM</b> is show
 await p.waitForURL(/esim/,{timeout:30000}); await wait(800)
 
 // ---------- ESIM ----------
-await cap('Scan the QR or paste the LPA code. The line switches on when you land.')
+await cap('The QR is a <b>sample test eSIM</b>. It does not install a live line.')
 await moveTo(390, 420, 30); await wait(2500)
 await moveTo(820, 300, 30); await wait(1500)
 await scrollTo(420, 1500); await wait(1200)
@@ -130,7 +130,7 @@ await cap('It pays AstroAm what you used and <b>refunds the rest</b> to your wal
 await wait(2200)
 await click(p.getByRole('button',{name:/^END MISSION$/}), 500)
 await p.waitForSelector('text=MISSION SETTLED', {timeout:20000}); await wait(1000)
-await cap('Used 1.25 USDC → <b>8.75 USDC back in your wallet</b>.')
+await cap('The close pays what was attested and sends the rest back. The live devnet run deposited <b>2.5 USDC</b>, paid <b>1.875</b>, and returned <b>0.625</b>.')
 await wait(5000)
 await cap('If nobody closes, a <b>timeout refund</b> pays the attested amount and returns only the rest.')
 await wait(4000)
