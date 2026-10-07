@@ -126,6 +126,85 @@ Las claves privadas (`id.json` del deployer, `meter.json` del medidor y el keypa
 
 Sin CLI o sin SOL, `npm run solana:deploy` imprime esos pasos y sale con código 1.
 
+## Probar con tu propio deploy
+
+Para probar el cierre con vale del medidor en devnet, la API necesita la clave privada del medidor de ese programa. La del programa de arriba no está en el repo, así que cada integrante del equipo despliega su propia copia, con su deployer y su medidor. En devnet es gratis y no comparte ningún secreto.
+
+Sin deploy ya se puede probar bastante: `npm test`, `npm run solana:test` (el programa entero en `solana-program-test`, sin claves) y la app con `VITE_ASTROAM_MODE=demo`.
+
+### En Windows: compilar y desplegar desde WSL
+
+`cargo build-sbf` no anda bien en Windows nativo. La compilación y el deploy se hacen en Ubuntu (WSL), y la API y el frontend siguen corriendo en Windows. Todos los comandos de esta parte van **en la terminal de Ubuntu** (`wsl`), no en PowerShell: si PowerShell dice que no reconoce `solana-keygen`, es porque estás en la terminal equivocada.
+
+1. Herramientas (una vez):
+
+   ```bash
+   sudo apt update && sudo apt install -y build-essential pkg-config libssl-dev libudev-dev curl rsync
+   curl https://sh.rustup.rs -sSf | sh -s -- -y && source ~/.cargo/env
+   sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
+   echo 'export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"' >> ~/.bashrc
+   curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+   source ~/.bashrc && nvm install 22
+   ```
+
+   El Node de Windows no sirve dentro de WSL: hace falta este.
+
+2. Claves, guardadas en la carpeta de Windows para que la API las lea después. A `BIP39 Passphrase` respondé con Enter (vacía):
+
+   ```bash
+   mkdir -p /mnt/c/Users/<usuario>/.config/solana
+   solana-keygen new -o /mnt/c/Users/<usuario>/.config/solana/id.json     # deployer = payee = operador
+   solana-keygen new -o /mnt/c/Users/<usuario>/.config/solana/meter.json  # medidor, otra clave
+   solana config set --url devnet --keypair /mnt/c/Users/<usuario>/.config/solana/id.json
+   solana airdrop 2    # o https://faucet.solana.com
+   ```
+
+3. Una copia del repo en el disco de Linux. Compilar sobre `/mnt/c` falla con `Cannot allocate memory (os error 12)`:
+
+   ```bash
+   rsync -a --exclude node_modules --exclude target --exclude .git \
+     /mnt/c/<ruta al repo>/ ~/astroam/
+   cd ~/astroam && npm install
+   ```
+
+4. Deploy:
+
+   ```bash
+   export CARGO_BUILD_JOBS=2    # 1 si vuelve a faltar memoria
+   export SOLANA_DEPLOYER_KEYPAIR=/mnt/c/Users/<usuario>/.config/solana/id.json
+   export SOLANA_METER_KEYPAIR=/mnt/c/Users/<usuario>/.config/solana/meter.json
+   npm run solana:deploy
+   ```
+
+   Si corta con `fetch failed` después de compilar, el programa ya se subió y falta el initialize. Corré `export NODE_OPTIONS=--dns-result-order=ipv4first` y volvé a ejecutar `npm run solana:deploy`: usa el mismo keypair de `target/deploy/` y despliega al mismo program id. No borres esa carpeta.
+
+En Linux o macOS se saltean la copia y las rutas `/mnt/c`: alcanza con los pasos de [Desplegarlo](#desplegarlo).
+
+### Tu `.env`
+
+`cp .env.example .env` y reemplazá con lo que imprimió **tu** deploy:
+
+```bash
+SOLANA_PROGRAM_ID=<el tuyo>
+SOLANA_PAYEE_ADDRESS=<el tuyo>
+SOLANA_METER_PUBKEY=<el tuyo>
+SOLANA_ESCROW_SESSION_KEYS=true
+SOLANA_METER_KEYPAIR=C:/Users/<usuario>/.config/solana/meter.json
+SOLANA_OPERATOR_KEYPAIR=C:/Users/<usuario>/.config/solana/id.json
+```
+
+Las rutas de las claves van absolutas y en el formato del sistema donde corre la API (en Windows, `C:/...`, no las `/mnt/c/...` que imprime el script). La API no expande `~`. Para ver un `claim` con el tráfico de demo (250 MB son 0,625 USDC), bajá `CLAIM_MIN_USDC` a `0.5`; `FUND_FLOW_INTERVAL_MS=15000` acorta la espera.
+
+Al arrancar `npm run server`, el log tiene que decir `fund flow is automatic` y no `operator key not loaded` ni `meter key not loaded`. `http://localhost:8080/api/capabilities` muestra tu program id y `escrowAutomation: true`.
+
+### La wallet del viajero
+
+Phantom o Solflare en **Devnet**, con una cuenta distinta de tu deployer: SOL de [faucet.solana.com](https://faucet.solana.com) y USDC de [faucet.circle.com](https://faucet.circle.com) (Solana Devnet). Si tenés las dos extensiones, la app usa Phantom primero: desactivala para probar con Solflare. El viajero firma solo el depósito; ni **Use 250 MB** ni el cierre abren la wallet.
+
+### Claves
+
+`id.json`, `meter.json` y `target/deploy/astroam_escrow-keypair.json` no se commitean ni se pegan en un chat. Hacé un backup fuera de la máquina. Una clave de operador no tiene que ser la del payee: cualquier cuenta con SOL de devnet puede mandar `checkpoint`, `claim` y `close`. Solo el barrido a Bridge necesita la del payee.
+
 ## Correr la app
 
 Node ≥ 22.18.
