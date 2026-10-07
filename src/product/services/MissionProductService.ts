@@ -277,7 +277,7 @@ export class MissionProductService {
 
     const solana = this.solanaDeposit(mission.id, mission.budgetUsdc)
     if (this.isLiveMode() && !solana.deployed) {
-      throw unavailable('Falta SOLANA_PROGRAM_ID y SOLANA_PAYEE_ADDRESS para depositar USDC en Solana devnet')
+      throw unavailable('Set SOLANA_PROGRAM_ID and SOLANA_PAYEE_ADDRESS before depositing USDC on Solana devnet')
     }
 
     const intent = await this.rail.createDepositIntent({
@@ -518,7 +518,7 @@ export class MissionProductService {
 
     const solana = buildTopUpPlan({ missionId, amountUsdc })
     if (this.isLiveMode() && !solana.deployed) {
-      throw unavailable('Falta SOLANA_PROGRAM_ID y SOLANA_PAYEE_ADDRESS para recargar USDC en Solana devnet')
+      throw unavailable('Set SOLANA_PROGRAM_ID and SOLANA_PAYEE_ADDRESS before topping up USDC on Solana devnet')
     }
 
     const intent = await this.rail.createDepositIntent({
@@ -670,7 +670,7 @@ export class MissionProductService {
 
     const solana = this.solanaClose(mission)
     if (this.isLiveMode() && !solana.deployed) {
-      throw unavailable('Falta SOLANA_PROGRAM_ID y SOLANA_PAYEE_ADDRESS para cerrar el depósito en Solana devnet')
+      throw unavailable('Set SOLANA_PROGRAM_ID and SOLANA_PAYEE_ADDRESS before closing the Solana devnet deposit')
     }
 
     // The meter signs the cumulative voucher, including a zero voucher so an
@@ -705,7 +705,7 @@ export class MissionProductService {
     }
 
     if (!isSolanaSignature(txHash)) {
-      throw new Error('El cierre necesita la firma de la transacción en Solana (base58, 64 bytes)')
+      throw new Error('The close needs the Solana transaction signature (base58, 64 bytes)')
     }
 
     if (mission.iccid) {

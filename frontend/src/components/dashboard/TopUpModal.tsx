@@ -11,9 +11,8 @@ export default function TopUpModal({ onClose }: Props) {
   const { mission, isDemoMode, caps, createTopUpIntent, confirmTopUpPayment, actionLoading } = useMission()
   const [amount, setAmount] = useState(5)
   const [intent, setIntent] = useState<PaymentIntentInfo | null>(null)
-  const [txHashInput, setTxHashInput] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const simulated = isDemoMode || !caps?.solanaProgramId
+  const simulated = isDemoMode
 
   async function handleStartTopUp() {
     setError(null)
@@ -33,8 +32,8 @@ export default function TopUpModal({ onClose }: Props) {
     if (!intent) return
     setError(null)
     try {
-      const txHash = txHashInput.trim() || `0x${Date.now().toString(16)}`
-      await confirmTopUpPayment(intent.intentId, txHash, amount)
+      if (!isDemoMode) throw new Error('A top-up needs the wallet on Solana devnet.')
+      await confirmTopUpPayment(intent.intentId, `demo-${Date.now().toString(16)}`, amount)
       onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not confirm the top-up')
@@ -114,7 +113,7 @@ export default function TopUpModal({ onClose }: Props) {
             <div className="flex items-center gap-2 p-3 rounded-xl bg-primaryviolet-light border border-primaryviolet/30">
               <span className="material-symbols-outlined text-sm text-[#B9A6FF]">hub</span>
               <p className="font-mono text-[10px] font-bold text-[#B9A6FF] tracking-wider">
-                {simulated ? 'SIMULATED DEPOSIT' : 'DEPOSIT ON SOLANA DEVNET'}
+                {simulated ? 'DEMO MODE' : caps?.solanaProgramId ? 'DEPOSIT ON SOLANA DEVNET' : 'PROGRAM NOT SET'}
               </p>
             </div>
 
@@ -139,42 +138,20 @@ export default function TopUpModal({ onClose }: Props) {
               onClose()
             }}
           />
+        ) : simulated ? (
+          <button
+            type="button"
+            disabled={actionLoading}
+            onClick={() => void handleConfirmTopUp()}
+            className="w-full py-3 rounded-full bg-tealbrand text-[#04161A] font-bold text-xs uppercase tracking-wider shadow-[0_0_18px_rgba(47,208,221,0.45)] hover:opacity-90 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
+          >
+            <span className={`material-symbols-outlined text-sm ${actionLoading ? 'animate-spin' : ''}`}>{actionLoading ? 'refresh' : 'check_circle'}</span>
+            SIMULATE TOP-UP (DEMO MODE)
+          </button>
         ) : (
-          <div className="flex flex-col gap-4 font-mono text-xs">
-            <div className="p-4 bg-warmneutral rounded-2xl border border-cardborder text-center">
-              <span className="text-textsecondary text-[10px] block mb-1">TOP-UP AMOUNT</span>
-              <span className="font-display text-xl font-bold text-[#B9A6FF]">
-                {intent.amount} {intent.asset}
-              </span>
-              {intent.qr && <img src={intent.qr} alt="Top-up QR code" className="w-36 h-36 mx-auto my-3 object-contain rounded-lg bg-white p-1" />}
-            </div>
-
-            {!simulated && (
-              <div>
-                <label htmlFor="topup-tx" className="block text-[11px] text-textsecondary mb-1">
-                  TRANSACTION HASH
-                </label>
-                <input
-                  id="topup-tx"
-                  type="text"
-                  value={txHashInput}
-                  onChange={(e) => setTxHashInput(e.target.value)}
-                  placeholder="transaction signature"
-                  className="w-full px-3 py-2 min-h-[44px] rounded-xl border border-[#6B6E9E] bg-warmneutral text-xs text-textprimary focus:outline-none focus:border-primaryviolet"
-                />
-              </div>
-            )}
-
-            <button
-              type="button"
-              disabled={actionLoading || (!simulated && !txHashInput.trim())}
-              onClick={() => void handleConfirmTopUp()}
-              className="w-full py-3 rounded-full bg-tealbrand text-[#04161A] font-bold text-xs uppercase tracking-wider shadow-[0_0_18px_rgba(47,208,221,0.45)] hover:opacity-90 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
-            >
-              <span className={`material-symbols-outlined text-sm ${actionLoading ? 'animate-spin' : ''}`}>{actionLoading ? 'refresh' : 'check_circle'}</span>
-              {simulated ? 'SIMULATE DEPOSIT' : 'CONFIRM TOP-UP'}
-            </button>
-          </div>
+          <p role="status" className="rounded-2xl border border-starlight/40 bg-starlight/10 p-4 text-sm text-starlight">
+            This server has no Solana escrow program id, so a top-up is not simulated. Deploy the program and restart the API.
+          </p>
         )}
 
         {error && (

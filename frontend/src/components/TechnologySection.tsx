@@ -3,7 +3,7 @@ import DotIcon from './dots/DotIcon'
 
 const steps = [
   { icon: 'account_circle', color: 'text-[#B9A6FF]', step: 'STEP 01', title: 'TRAVELER', desc: 'Sets a budget and browses', img: null },
-  { icon: null, color: '', step: 'STEP 02', title: 'ASTROAM APP', desc: 'Signs vouchers in the background', img: shipSmSrc },
+  { icon: null, color: '', step: 'STEP 02', title: 'METER KEY', desc: 'Signs usage vouchers off-chain', img: shipSmSrc },
   { icon: 'toll', color: 'text-starlight', step: 'STEP 03', title: 'CHECKPOINT', desc: 'Meters usage per reading', img: null },
   { icon: 'hub', color: 'text-tealbrand', step: 'STEP 04', title: 'SOLANA', desc: 'One transaction settles the trip', img: null },
   { icon: 'cell_tower', color: 'text-online', step: 'STEP 05', title: 'CARRIER', desc: 'Keeps the 4G/5G link up', img: null },
@@ -20,7 +20,7 @@ const stepColors: Record<string, string> = {
 const pillars = [
   { code: '01', title: 'Stable money', desc: 'No exchange-rate swings or unexpected bank fees while you travel.', glyph: 'paid', hot: [{ x: 0.5, y: 0.5, r: 0.14 }] },
   { code: '02', title: 'Tiny increments', desc: 'Pay for the megabytes you download and not a cent more.', glyph: 'grain', hot: [{ x: 0.7, y: 0.3, r: 0.16 }] },
-  { code: '03', title: 'Your funds, locked', desc: 'AstroAm can only take what your app signed for; the rest returns to you.', glyph: 'lock', hot: [{ x: 0.5, y: 0.66, r: 0.12 }] },
+  { code: '03', title: 'Your funds, locked', desc: 'The program pays only what the meter key attested, and never more than the deposit. The rest returns to you.', glyph: 'lock', hot: [{ x: 0.5, y: 0.66, r: 0.12 }] },
   { code: '04', title: 'Verifiable record', desc: 'Deposit and settlement are on-chain, visible in the Solana explorer.', glyph: 'visibility', hot: [{ x: 0.5, y: 0.5, r: 0.12 }] },
 ]
 

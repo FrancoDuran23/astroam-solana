@@ -1,12 +1,18 @@
 // Solana wallet flow for the devnet escrow.
 //
-// Phantom or Solflare (window.phantom.solana / window.solflare). The traveler
-// deposits Circle devnet USDC once. Usage stays off-chain. One close pays
-// AstroAm the attested amount and refunds the rest. The voucher is signed by
-// AstroAm's meter key; this wallet only submits the transaction. A timeout
-// refund pays that attested amount to the payee and returns the rest.
+// A real wallet only: Wallet Standard first (Phantom and other extensions
+// register this way), then the injected Phantom or Solflare provider. There
+// is no mock wallet on this path. The dev-only mock used by the headless
+// recorder lives in docs/demo/recording and is not imported here.
+//
+// The traveler deposits Circle devnet USDC once. Usage stays off-chain. One
+// close pays AstroAm the attested amount and refunds the rest. The voucher
+// is signed by AstroAm's meter key; this wallet only submits the transaction.
+// A timeout refund pays that attested amount to the payee and returns the rest.
 
 import { Buffer } from 'buffer'
+import { getWallets } from '@wallet-standard/app'
+import type { Wallet, WalletAccount } from '@wallet-standard/base'
 import {
   Connection,
   Ed25519Program,
@@ -69,12 +75,109 @@ export function walletError(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-function provider(): SolanaProvider {
+const NO_WALLET = 'No Solana wallet found. Install Phantom, or another Wallet Standard wallet, and switch it to Devnet.'
+const DEVNET_CHAIN = 'solana:devnet'
+
+type SignTransactionFeature = {
+  signTransaction: (
+    ...inputs: { account: WalletAccount; transaction: Uint8Array; chain?: string }[]
+  ) => Promise<{ signedTransaction: Uint8Array }[]>
+}
+
+type ConnectedWallet = {
+  publicKey: PublicKey
+  signTransaction: (tx: Transaction) => Promise<Transaction>
+}
+
+let connected: ConnectedWallet | null = null
+
+if (typeof window !== 'undefined') {
+  // Tells installed wallets the app is ready to register them.
+  getWallets()
+}
+
+function signFeature(wallet: Wallet): SignTransactionFeature | null {
+  const feature = (wallet.features as Record<string, { signTransaction?: unknown }>)['solana:signTransaction']
+  if (!feature || typeof feature.signTransaction !== 'function') return null
+  return feature as SignTransactionFeature
+}
+
+function solanaAccount(accounts: readonly WalletAccount[]): WalletAccount | undefined {
+  return (
+    accounts.find((account) => account.chains.includes(DEVNET_CHAIN)) ??
+    accounts.find((account) => account.chains.some((chain) => chain.startsWith('solana:')))
+  )
+}
+
+function walletRank(wallet: Wallet): number {
+  const name = wallet.name.toLowerCase()
+  if (name.includes('phantom')) return 3
+  if (name.includes('solflare')) return 2
+  if (wallet.chains.some((chain) => chain.startsWith('solana:'))) return 1
+  return 0
+}
+
+async function connectStandard(): Promise<ConnectedWallet | null> {
+  if (typeof window === 'undefined') return null
+  const wallets = getWallets()
+    .get()
+    .filter((wallet) => signFeature(wallet) !== null)
+    .sort((a, b) => walletRank(b) - walletRank(a))
+  for (const wallet of wallets) {
+    const connect = (
+      wallet.features as Record<string, { connect?: () => Promise<{ accounts: readonly WalletAccount[] }> }>
+    )['standard:connect']?.connect
+    let accounts = wallet.accounts
+    if (solanaAccount(accounts) === undefined && connect) {
+      try {
+        accounts = (await connect()).accounts
+      } catch {
+        continue
+      }
+    }
+    const account = solanaAccount(accounts)
+    const feature = signFeature(wallet)
+    if (!account || !feature) continue
+    const publicKey = new PublicKey(account.publicKey)
+    return {
+      publicKey,
+      async signTransaction(tx) {
+        const wire = tx.serialize({ requireAllSignatures: false, verifySignatures: false })
+        const [signed] = await feature.signTransaction({ account, transaction: wire, chain: DEVNET_CHAIN })
+        if (!signed?.signedTransaction) throw new Error('The wallet did not return a signed transaction.')
+        return Transaction.from(signed.signedTransaction)
+      },
+    }
+  }
+  return null
+}
+
+function injectedProvider(): SolanaProvider | null {
   const phantom = window.phantom?.solana
   if (phantom?.isPhantom) return phantom
   const solflare = window.solflare
   if (solflare?.isSolflare) return solflare
-  throw new Error('No Solana wallet found. Install Phantom or Solflare and switch it to Devnet.')
+  return null
+}
+
+/** Connects a real wallet. Never falls back to a mock. */
+async function connectWallet(): Promise<ConnectedWallet> {
+  if (connected) return connected
+  const standard = await connectStandard()
+  if (standard) {
+    connected = standard
+    return standard
+  }
+  const injected = injectedProvider()
+  if (!injected) throw new Error(NO_WALLET)
+  if (!injected.publicKey) await injected.connect()
+  const publicKey = injected.publicKey
+  if (!publicKey) throw new Error('The wallet did not return an account.')
+  connected = {
+    publicKey,
+    signTransaction: (tx) => injected.signTransaction(tx),
+  }
+  return connected
 }
 
 function connectionFor(rpcUrl: string): Connection {
@@ -122,10 +225,8 @@ export function rememberedPayer(missionId: string): string | undefined {
 }
 
 async function sendTransaction(rpcUrl: string, tx: Transaction): Promise<string> {
-  const wallet = provider()
-  if (!wallet.publicKey) await wallet.connect()
+  const wallet = await connectWallet()
   const traveler = wallet.publicKey
-  if (!traveler) throw new Error('The wallet did not return an account.')
   const connection = connectionFor(rpcUrl)
   const lamports = await connection.getBalance(traveler)
   if (lamports === 0) {
@@ -148,10 +249,8 @@ export async function sendDeposit(
 ): Promise<string> {
   onProgress?.('connecting')
   const { programId } = requireDeployed(plan)
-  const wallet = provider()
-  if (!wallet.publicKey) await wallet.connect()
+  const wallet = await connectWallet()
   const traveler = wallet.publicKey
-  if (!traveler) throw new Error('The wallet did not return an account.')
   rememberPayer(missionId, { address: traveler.toBase58(), rpcUrl: plan.rpcUrl, mint: plan.usdcMint })
 
   const connection = connectionFor(plan.rpcUrl)
@@ -241,10 +340,8 @@ export async function closeEscrow(plan: SolanaClosePlan, voucher: { signature: U
   if (!plan.messageBase64) {
     throw new Error('The escrow is not deployed, so there is no voucher to sign.')
   }
-  const wallet = provider()
-  if (!wallet.publicKey) await wallet.connect()
+  const wallet = await connectWallet()
   const traveler = wallet.publicKey
-  if (!traveler) throw new Error('The wallet did not return an account.')
   const message = Uint8Array.from(Buffer.from(plan.messageBase64, 'base64'))
   const signature = voucher.signature
   const voucherSigner = new PublicKey(voucher.signer)
@@ -285,10 +382,8 @@ export async function refundEscrow(plan: {
   payee: string
 }): Promise<string> {
   const programId = new PublicKey(plan.programId)
-  const wallet = provider()
-  if (!wallet.publicKey) await wallet.connect()
+  const wallet = await connectWallet()
   const traveler = wallet.publicKey
-  if (!traveler) throw new Error('The wallet did not return an account.')
   const mint = new PublicKey(plan.usdcMint)
   const payee = new PublicKey(plan.payee)
   const travelerAta = await getAssociatedTokenAddress(mint, traveler)

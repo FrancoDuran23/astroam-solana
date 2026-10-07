@@ -2,8 +2,10 @@ import { chromium } from 'playwright'
 import fs from 'fs'
 import { routeFonts } from './fonts.mjs'
 import { routeApi } from './esim.mjs'
-const mock = fs.readFileSync('mock-solana.js','utf8')
+const useDevOnlyMock = process.env.ASTROAM_DEV_ONLY_MOCK_WALLET === '1'
+const mock = useDevOnlyMock ? fs.readFileSync('dev-only-mock-wallet.js','utf8') : ''
 const overlay = fs.readFileSync('overlay.js','utf8')
+const programId = process.env.SOLANA_PROGRAM_ID?.trim() || 'HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk'
 const W=1280,H=720
 const b = await chromium.launch()
 const ctx = await b.newContext({ viewport:{width:W,height:H}, ignoreHTTPSErrors:true, recordVideo:{dir:'rec', size:{width:W,height:H}} })
@@ -11,7 +13,12 @@ await ctx.addInitScript(overlay)
 const p = await ctx.newPage(); const T0 = Date.now()
 await routeFonts(p)
 await routeApi(p)
-await p.route(/\/src\/chain\/solana\.ts/, r => r.fulfill({contentType:'application/javascript', body:mock}))
+if (useDevOnlyMock) {
+  console.warn('ASTROAM_DEV_ONLY_MOCK_WALLET=1: signatures in this recording are fake.')
+  await p.route(/\/src\/chain\/solana\.ts/, r => r.fulfill({contentType:'application/javascript', body:mock}))
+} else {
+  console.log('Recording uses the app wallet (Phantom or Wallet Standard). No mock is injected.')
+}
 const wait = ms => p.waitForTimeout(ms)
 let capPos='bottom'
 const cap = (h) => p.evaluate(([h,pos]) => window.__cap(h,pos), [h,capPos])
@@ -94,7 +101,7 @@ await click(p.getByRole('button',{name:/with wallet/}), 500)
 await wait(2200)
 await cap('One deposit transaction. Usage is never charged MB by MB on-chain.')
 await p.waitForSelector('text=Preparing your mission', {timeout:20000})
-await cap('Deposit confirmed → channel opened → eSIM issued by Citrus Mobile.')
+await cap('Deposit step → channel opened → a <b>sample test eSIM</b> is shown. No carrier issued a line.')
 await p.waitForURL(/esim/,{timeout:30000}); await wait(800)
 
 // ---------- ESIM ----------
@@ -112,8 +119,8 @@ await cap('Each carrier reading produces a <b>signed voucher</b> for the exact a
 const use = p.getByRole('button',{name:/USE 250 MB/})
 await click(use, 400); await wait(2200)
 await click(use, 300); await wait(2200)
-await scrollToEl(p.getByText('AI COPILOT').first(), 90, 1600)
-await cap('500 MB = <b>1.25 USDC</b>. Vouchers stay off-chain: zero fees per MB. An AI copilot keeps you on budget.')
+await scrollToEl(p.getByText('BUDGET ASSISTANT').first(), 90, 1600)
+await cap('500 MB = <b>1.25 USDC</b> at the sample rate. Vouchers stay off-chain. A <b>rule-based budget assistant</b> pauses data at your limit. It is not a model.')
 await wait(4500)
 
 // ---------- CLOSE ----------
@@ -125,7 +132,7 @@ await click(p.getByRole('button',{name:/^END MISSION$/}), 500)
 await p.waitForSelector('text=MISSION SETTLED', {timeout:20000}); await wait(1000)
 await cap('Used 1.25 USDC → <b>8.75 USDC back in your wallet</b>.')
 await wait(5000)
-await cap('And if AstroAm never closes, a <b>timeout refund</b> returns your full deposit.')
+await cap('If nobody closes, a <b>timeout refund</b> pays the attested amount and returns only the rest.')
 await wait(4000)
 await cap(null)
 
@@ -135,9 +142,9 @@ await card(`<div class="k">Under the hood · Solana devnet</div>
    <div class="pill"><i>01 · DEPOSIT</i><div>USDC into escrow</div><small>Vault owned by a program PDA. Circle USDC (SPL).</small></div>
    <div class="pill"><i>02 · VOUCHERS</i><div>Off-chain metering</div><small>Cumulative ed25519-signed vouchers. No tx per MB.</small></div>
    <div class="pill"><i>03 · CLOSE</i><div>One close</div><small>Pays what was used and refunds the rest in one tx.</small></div>
-   <div class="pill"><i>04 · REFUND</i><div>Timeout</div><small>If nobody closes in 7 days, the full deposit returns.</small></div>
+   <div class="pill"><i>04 · REFUND</i><div>Timeout</div><small>After 7 days the payee gets the attested amount. You get the rest.</small></div>
   </div>
-  <p style="font-size:17px">Program deployed on devnet: <code>8QXPo6yVxZuC3goYzHVLsxVkE1J6BaEqZvfW9e3Do2uq</code></p>`)
+  <p style="font-size:17px">Devnet program: <code>${programId}</code></p>`)
 await wait(7500)
 await card(`<h1>Astro<span>Am</span></h1>
   <p>Travel connected. Pay only for what you use.<br>What you don't use comes back.</p>

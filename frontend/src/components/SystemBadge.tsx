@@ -35,7 +35,7 @@ export default function SystemBadge() {
   return (
     <span className={`${BADGE} bg-starlight/10 border-starlight/30 text-starlight`}>
       <span className="w-1.5 h-1.5 rounded-full bg-starlight animate-pulse" />
-      SIMULATED PAYMENTS
+      PROGRAM NOT SET
     </span>
   )
 }

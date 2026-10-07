@@ -1,7 +1,13 @@
+// DEV/TEST ONLY. Not imported by the app.
+//
+// The recorder may inject this file in place of frontend/src/chain/solana.ts
+// when ASTROAM_DEV_ONLY_MOCK_WALLET=1. Headless Chromium has no Phantom.
+// The signatures it returns are random and are not Solana transactions.
+// Do not use it for a demo that claims a real devnet payment.
 const B58='123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
 const rnd=()=>{const bytes=crypto.getRandomValues(new Uint8Array(64)); bytes[0]=bytes[0]||1; let n=0n; for(const x of bytes)n=n*256n+BigInt(x); let s=''; while(n>0n){s=B58[Number(n%58n)]+s; n/=58n} return s}
 const sleep=ms=>new Promise(r=>setTimeout(r,ms))
-const WALLET='7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU'
+const WALLET='DevOnlyMockWalletNotARealPubkey'
 const payerKey=id=>`astroam_solana_payer_${id}`
 const bal=()=>Number(localStorage.getItem('mock_usdc')??'25')
 const setBal=v=>localStorage.setItem('mock_usdc',String(v))

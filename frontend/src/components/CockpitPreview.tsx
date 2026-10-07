@@ -86,7 +86,7 @@ export default function CockpitPreview() {
               </div>
             </div>
 
-            {/* Right: balance + copilot */}
+            {/* Right: balance + rule-based budget assistant */}
             <div className="lg:col-span-5 flex flex-col gap-5">
               {/* Balance card */}
               <div className="p-6 rounded-2xl bg-warmneutral border border-cardborder flex flex-col gap-1.5">
@@ -102,7 +102,7 @@ export default function CockpitPreview() {
               <div className="p-6 rounded-2xl bg-primaryviolet-light border border-primaryviolet/30 flex flex-col gap-2.5 relative">
                 <div className="flex items-center gap-2 text-[#B9A6FF] font-mono text-xs font-bold tracking-wider uppercase">
                   <span className="material-symbols-outlined text-base">smart_toy</span>
-                  AI COPILOT // FLIGHT REPORT
+                  BUDGET ASSISTANT // RULES
                 </div>
                 <p className="text-sm text-textprimary italic leading-relaxed">
                   &quot;Your mission is on budget. You have about 1.2 GB left in this zone. Data pauses automatically at your limit

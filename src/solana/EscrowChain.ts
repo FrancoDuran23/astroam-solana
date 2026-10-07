@@ -239,14 +239,35 @@ export class SolanaEscrowChain implements EscrowChain {
   }
 }
 
-/** Reads a keypair file in the `solana-keygen` format: a JSON array of 64 bytes. */
-export function loadKeypair(path: string): Keypair {
-  if (!existsSync(path)) throw new Error(`SOLANA_OPERATOR_KEYPAIR: no file at ${path}`);
-  const bytes = JSON.parse(readFileSync(path, "utf8")) as unknown;
-  if (!Array.isArray(bytes) || bytes.length !== 64) {
-    throw new Error("SOLANA_OPERATOR_KEYPAIR: expected the JSON array of 64 bytes that solana-keygen writes");
+/** A solana-keygen secret: a JSON array of 64 bytes. The value is never logged. */
+export function keypairFromBytes(bytes: unknown, label: string): Keypair {
+  if (!Array.isArray(bytes) || bytes.length !== 64 || bytes.some((n) => !Number.isInteger(n) || (n as number) < 0 || (n as number) > 255)) {
+    throw new Error(`${label}: expected the JSON array of 64 bytes that solana-keygen writes`);
   }
   return Keypair.fromSecretKey(Uint8Array.from(bytes as number[]));
+}
+
+/** Reads a keypair file in the `solana-keygen` format. */
+export function loadKeypair(path: string, label = "SOLANA_OPERATOR_KEYPAIR"): Keypair {
+  if (!existsSync(path)) throw new Error(`${label}: no file at ${path}`);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    throw new Error(`${label}: file is not JSON`);
+  }
+  return keypairFromBytes(parsed, label);
+}
+
+/** Same bytes as a keypair file, passed as an environment variable on a host that has no secret file. */
+export function keypairFromJsonEnv(raw: string, label: string): Keypair {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error(`${label}: value is not JSON`);
+  }
+  return keypairFromBytes(parsed, label);
 }
 
 /**
@@ -255,15 +276,19 @@ export function loadKeypair(path: string): Keypair {
  * Throws when the keypair is set but cannot be read.
  */
 export function createEscrowChain(env: Record<string, string | undefined>): EscrowChain | undefined {
+  const keypairJson = env.SOLANA_OPERATOR_KEYPAIR_JSON?.trim();
   const keypairPath = env.SOLANA_OPERATOR_KEYPAIR?.trim();
   const programId = env.SOLANA_PROGRAM_ID?.trim();
   const payee = env.SOLANA_PAYEE_ADDRESS?.trim();
-  if (!keypairPath || !isSolanaAddress(programId) || !isSolanaAddress(payee)) return undefined;
+  if ((!keypairJson && !keypairPath) || !isSolanaAddress(programId) || !isSolanaAddress(payee)) return undefined;
+  const operator = keypairJson
+    ? keypairFromJsonEnv(keypairJson, "SOLANA_OPERATOR_KEYPAIR_JSON")
+    : loadKeypair(keypairPath!, "SOLANA_OPERATOR_KEYPAIR");
   return new SolanaEscrowChain({
     rpcUrl: env.SOLANA_RPC_URL?.trim() || SOLANA_RPC_URL,
     programId: programId!,
     payee: payee!,
     usdcMint: SOLANA_USDC_MINT,
-    operator: loadKeypair(keypairPath),
+    operator,
   });
 }

@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import logoFooterSrc from '../assets/logo-footer-night.png'
 
 export default function Footer() {
@@ -24,6 +25,7 @@ export default function Footer() {
           <a href="#how-it-works" className="py-3.5 hover:text-white transition-colors">HOW IT WORKS</a>
           <a href="#technology" className="py-3.5 hover:text-white transition-colors">TECHNOLOGY</a>
           <a href="#cockpit" className="py-3.5 hover:text-white transition-colors">COCKPIT</a>
+          <Link to="/terms" className="py-3.5 hover:text-white transition-colors">TERMS</Link>
         </div>
 
       </div>
