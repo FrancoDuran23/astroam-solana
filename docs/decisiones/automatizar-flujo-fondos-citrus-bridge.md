@@ -1,9 +1,10 @@
 # Decisión: Citrus + Bridge para automatizar el flujo de fondos
 
-**Fecha:** 5/10/2026 · **Estado:** el escrow (clave de sesión y claims), el
-fondeo por tramos, el cobro y el cierre automáticos están implementados y con
-tests; el programa actualizado todavía no se desplegó en devnet. Bridge, la
-tarjeta de Citrus y la prueba con una eSIM real siguen pendientes (§6).
+**Fecha:** 5/10/2026 · **Estado:** el escrow (vales firmados por la clave
+del medidor, checkpoints y claims), el fondeo por tramos, el cobro y el
+cierre automáticos están implementados y con tests; el programa nuevo
+está en devnet (`HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk`). Bridge, la tarjeta de Citrus y la prueba
+con una eSIM real siguen pendientes (§6).
 
 Esta decisión **reemplaza y extiende** la propuesta de la rama
 `docs/automatizar-flujo-de-fondos`
@@ -184,41 +185,56 @@ Próximos pasos:
 
 Hecho en el código:
 
-- **Programa** (`programs/astroam-escrow`): `deposit` acepta una clave de
-  sesión; `claim` cobra la parte del vale no cobrada y deja el escrow abierto;
-  `close` no puede bajar de lo ya cobrado; el timeout corre desde el depósito,
-  el último `topUp` o el último `claim`, y el `refund` devuelve lo no cobrado.
-  Los escrows del primer despliegue (sin clave de sesión) se siguen pudiendo
-  cerrar y reembolsar después de actualizar el programa.
-- **App** (`frontend/src/chain/session.ts`): genera la clave de sesión al
-  depositar, la guarda en el navegador y firma el vale después de cada
-  lectura. La clave vive en el navegador, no en el backend: AstroAm nunca
-  puede firmar un monto por el viajero.
-- **Backend**: guarda el vale más alto (`POST /api/missions/:id/vouchers`),
-  fondea la eSIM un tramo por delante del vale, cobra con `claim`, cierra con
-  `close` y barre lo cobrado a `BRIDGE_LIQUIDATION_ADDRESS`
-  (`src/product/services/fund-flow.ts`, `src/jobs/fund-flow.ts`,
-  `src/solana/EscrowChain.ts`). Con la clave de operador el depósito se lee
-  del escrow, no del pedido.
+- **Programa** (`programs/astroam-escrow`): la config (106 bytes) guarda la
+  **clave del medidor** de AstroAm, y es la única que puede firmar un vale
+  acumulativo (ed25519 sobre `(program id, escrow id, monto)`). `deposit`
+  puede registrar una clave de sesión, pero esa clave no firma vales.
+  `checkpoint` graba el último vale sin mover USDC y sin reiniciar el
+  timeout; `claim` cobra la parte del vale no cobrada y deja el escrow
+  abierto; `close` exige un vale entre lo ya atestiguado y el depósito. El
+  timeout corre desde el depósito, el último `topUp` o el último `claim`, y
+  el `refund` paga al payee lo atestiguado no cobrado y devuelve al viajero
+  solo el resto. Los escrows del primer despliegue se siguen pudiendo cerrar
+  y reembolsar.
+- **App**: el viajero firma una sola vez, el depósito. Después de cada
+  lectura de consumo la app pide `POST /api/missions/:id/attest` y, al
+  terminar el viaje, `POST /api/missions/:id/settle`. Ninguna de las dos
+  abre la wallet.
+- **Backend**: firma los vales con `SOLANA_METER_KEYPAIR` y los graba con
+  `checkpoint`; fondea la eSIM un tramo por delante del vale, cobra con
+  `claim`, cierra con `close` y barre lo cobrado a
+  `BRIDGE_LIQUIDATION_ADDRESS` (`src/solana/meter-signer.ts`,
+  `src/product/services/fund-flow.ts`, `src/jobs/fund-flow.ts`,
+  `src/solana/EscrowChain.ts`). Con `SOLANA_OPERATOR_KEYPAIR` el depósito se
+  lee del escrow, no del pedido.
 
 Diferencias con lo escrito arriba:
 
+- **Quién firma el vale.** §4 proponía que el backend cerrara con la clave
+  de sesión del viajero. Quedó la clave del medidor de AstroAm: el viajero
+  no puede trabar el cierre ni subdeclarar el consumo negándose a firmar. El
+  tope sigue siendo el depósito, y cada vale queda en el explorer para
+  auditarlo contra el registro de consumo del proveedor.
 - **Tramo.** No se espera a que un vale cubra el tramo anterior entero, porque
   la wallet de la eSIM llegaría a $0 y Citrus cortaría los datos antes de
   fondear el siguiente. La regla es que lo fondeado nunca pase de lo que
   cubren los vales más un tramo. La pérdida máxima sigue siendo un tramo.
-- **Cierre sin vale.** Si el viajero deposita y nunca firma un vale, el
-  backend no puede cerrar: ni un vale por cero se puede firmar por él. Ese
-  depósito vuelve por el `refund` del timeout.
-- **Uso después del último vale.** Con la app cerrada no se firman vales. El
-  cierre automático usa el último vale que tiene, así que lo consumido
-  después se pierde (como mucho, un tramo).
+- **Timeout.** Ya no devuelve todo el depósito: paga lo atestiguado en el
+  último `checkpoint` o `claim`. Lo que AstroAm puede perder es lo consumido
+  después del último vale grabado.
 
-Pendiente, fuera del código: los pasos 1, 2, 4 y 5 de §5; desplegar el
-programa actualizado (`npm run solana:upgrade`, con la clave que lo
-desplegó); y la prueba con una eSIM real. Los webhooks de Citrus
-(`esim.balance_depleted`, `esim.defunded`) no están conectados al flujo: hoy
-se entera por la lectura periódica.
+Desplegado: como la config pasó a 106 bytes, el código nuevo es un
+programa nuevo en devnet, `HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk`
+(medidor `3WqaNhVVCCnabBLGA9YWviQHDvo6fTmX1Y9otcmsdB7k`). El primero,
+`8QXPo6yVxZuC3goYzHVLsxVkE1J6BaEqZvfW9e3Do2uq`, no se podía actualizar con
+`--upgrade`. Con FakeProvider se probaron depósito, checkpoint, claim y
+cierre.
+
+Pendiente, fuera del código: los pasos 1, 2, 4 y 5 de §5; la prueba del
+`refund` después del timeout; y la prueba con una eSIM real. Los
+webhooks de Citrus (`esim.balance_depleted`, `esim.defunded`) actualizan el
+registro de la eSIM pero no disparan el flujo de fondos: hoy se entera por
+la lectura periódica.
 
 ## Enlaces
 

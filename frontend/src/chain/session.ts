@@ -1,12 +1,12 @@
 // Session key for a trip.
 //
 // The traveler's wallet signs one transaction: the deposit. That deposit
-// registers this key in the escrow, and from then on the app signs the
-// cumulative usage vouchers with it, with no wallet popup. The key can only
-// authorize paying AstroAm out of this one escrow, never more than the
-// deposit, so it lives in this browser's storage.
+// registers this key in the escrow. The key does not sign usage vouchers:
+// the program accepts only AstroAm's meter key, and the backend signs and
+// sends checkpoint, claim and close with no wallet popup. The key lives in
+// this browser's storage.
 //
-// Ed25519 from WebCrypto: the same signature the escrow program checks.
+// Ed25519 from WebCrypto.
 
 import { Buffer } from 'buffer'
 import { PublicKey } from '@solana/web3.js'
