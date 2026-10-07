@@ -57,7 +57,7 @@ Each traveler has their own escrow PDA, derived from that trip's escrow id, and 
 
 Usage is metered off-chain, so a meter that over-reports could charge more than the traveler used, up to the deposit. That is bounded by the cap above, and it is auditable: every checkpoint and close is a transaction whose voucher message is `AstroAmEscrow:v1:close || program id || escrow id || amount`, signed by the published meter key. The carrier's usage record for the same ICCID is the other side of that check. A disagreement is visible on the explorer and in the provider's usage log; it does not require trusting a traveler signature.
 
-The program upgrade authority is still the deployer key (`GmqSpjbis6DZV4easxKdPpRZmhx7RBoDJDsFB2psnYDx` on the current devnet deployment). The payee that receives used USDC is that same key. Both are planned to move to a 2-of-3 Squads multisig so no single laptop can upgrade the program or spend the treasury. The USDC sitting in a traveler's vault is not part of that treasury: the multisig cannot transfer it either.
+The program upgrade authority is still the deployer key (`9NMAvdKGJibTUFW4mWRfVd4sZRpLNo3fQCQMqdrXXV89` on the current devnet deployment). The payee that receives used USDC is that same key. Both are planned to move to a 2-of-3 Squads multisig so no single laptop can upgrade the program or spend the treasury. The USDC sitting in a traveler's vault is not part of that treasury: the multisig cannot transfer it either.
 
 After the Squads vault exists:
 
@@ -74,9 +74,24 @@ solana program set-upgrade-authority <PROGRAM_ID> \
 # or sweep USDC already collected by the current payee to that vault.
 ```
 
-The config grew to 106 bytes to store the meter key, so the program already at `8QXPo6yVxZuC3goYzHVLsxVkE1J6BaEqZvfW9e3Do2uq` cannot take this code with `--upgrade`. It needs a fresh `npm run solana:deploy`. Until that deploy is printed by the script, the program id in `.env.example` stays the one above.
+The config grew to 106 bytes to store the meter key, so the first program, at `8QXPo6yVxZuC3goYzHVLsxVkE1J6BaEqZvfW9e3Do2uq`, could not take this code with `--upgrade`. This code was deployed as a new program with `npm run solana:deploy` (below). The first program stays on devnet and its escrows still close and refund, but `.env.example` no longer points at it.
 
-El escrow **está desplegado en Solana devnet**. El program id que imprimió `solana program deploy` es `8QXPo6yVxZuC3goYzHVLsxVkE1J6BaEqZvfW9e3Do2uq`. El payee, la misma cuenta pública del deployer, es `GmqSpjbis6DZV4easxKdPpRZmhx7RBoDJDsFB2psnYDx`. Esos dos valores están en `.env.example`. Con `cp .env.example .env` el botón de depósito de Phantom o Solflare manda USDC a ese programa. La transacción de deploy es `4APAdDDXSVWkkuqWSmhwJvB7GZDoqbtqZcEivqjsNJCYGFUNQEvsRRYM2ctxzrAVohbxrk4v5pVUSbygvmNZSiMq` y la de initialize es `3QdiV1oBvnbXEFDzdi43LVEED6dgGmnadwjtkti9D2mscwoPVqqx2Zk81aBfCVsLCEbXbeefdFrZwgnJNXSJJNy7`.
+El escrow **está desplegado en Solana devnet**. El program id que imprimió `npm run solana:deploy` es `HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk`. Su config (`4igZjvwU4sfiu4dsRAzcyk2PqQGBgZqhJ8ddnczXpy3o`, 106 bytes) guarda:
+
+| Campo | Valor |
+|---|---|
+| Payee y upgrade authority (el deployer) | `9NMAvdKGJibTUFW4mWRfVd4sZRpLNo3fQCQMqdrXXV89` |
+| Clave del medidor | `3WqaNhVVCCnabBLGA9YWviQHDvo6fTmX1Y9otcmsdB7k` |
+| Mint | `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU` (USDC de Circle) |
+| Timeout | 604800 s (7 días) |
+
+Esos valores están en `.env.example`. La transacción de initialize es `5sCmaunoJLppYh6wgzcbY3hmCD9w52HuK9D8HYLWzPpKdrqxotM3fzW4gRXds5jZWNWov4xYpxzttkoZbk8h5Gxp` y la del último deploy del código es `3jqc3Z5mLvPeyg3bj81TnTbbNamBAEfbYu6c8QxVj9nV7TQsymy3CTWF4W2BdPwjaxBJSRpotyrxayjizgmGXpqs`.
+
+Con `cp .env.example .env` el botón de depósito de Phantom o Solflare manda USDC a ese programa. El vale que permite cerrar lo firma solo la clave del medidor, así que el cierre automático, los `checkpoint` y los `claim` corren únicamente en una API que tenga `SOLANA_METER_KEYPAIR` (y `SOLANA_OPERATOR_KEYPAIR` para mandarlos). Sin esa clave el depósito funciona y lo vuelve a liberar el `refund` del timeout.
+
+El primer programa (`8QXPo6yVxZuC3goYzHVLsxVkE1J6BaEqZvfW9e3Do2uq`, payee `GmqSpjbis6DZV4easxKdPpRZmhx7RBoDJDsFB2psnYDx`, sin clave de medidor) sigue en devnet. Su deploy fue `4APAdDDXSVWkkuqWSmhwJvB7GZDoqbtqZcEivqjsNJCYGFUNQEvsRRYM2ctxzrAVohbxrk4v5pVUSbygvmNZSiMq` y su initialize `3QdiV1oBvnbXEFDzdi43LVEED6dgGmnadwjtkti9D2mscwoPVqqx2Zk81aBfCVsLCEbXbeefdFrZwgnJNXSJJNy7`.
+
+Las claves privadas (`id.json` del deployer, `meter.json` del medidor y el keypair del programa en `programs/astroam-escrow/target/deploy/`) no están en el repo y no van a estar. Quien las tenga hace un backup fuera de la máquina. Sin `id.json` no se puede actualizar el programa ni mover el USDC cobrado; sin `meter.json` la API no puede firmar vales para este programa.
 
 ## Desplegarlo
 
@@ -125,7 +140,7 @@ cd frontend && npm install && npm run dev   # app en http://localhost:5173
 
 No crees `frontend/.env`: sin `VITE_API_BASE_URL`, Vite reenvía `/api` al backend. Dejá `ASTROAM_LIVE_ENABLED=false` y `CONNECTIVITY_PROVIDER=fake`. `PAYMENT_RAIL=fake` mantiene la medición de demo en memoria; el USDC se mueve solo cuando la wallet manda deposit, close o refund.
 
-La app del viajero es la misma interfaz oscura que AstroAm en Monad (reels, starfield, landing de reembolso). Acá la wallet es Phantom o Solflare, no MetaMask. `.env.example` ya trae el program id de devnet del programa anterior, sin clave de medidor. El depósito contra ese id sigue yendo a ese programa. El cierre con vale del medidor corre contra el programa que imprime un `npm run solana:deploy` nuevo. La landing muestra el USDC que volvió a la wallet. **Refund after timeout** paga lo atestiguado y devuelve el resto. El tráfico de demo sigue en FakeProvider, sin Citrus. 250 MB en Brasil a 0,0025 USDC/MB sobre 10 USDC son 0,625 usados y 9,375 devueltos.
+La app del viajero es la misma interfaz oscura que AstroAm en Monad (reels, starfield, landing de reembolso). Acá la wallet es Phantom o Solflare, no MetaMask. `.env.example` ya trae el program id de devnet con clave de medidor. Para el cierre con vale del medidor, `SOLANA_METER_KEYPAIR` y `SOLANA_OPERATOR_KEYPAIR` apuntan a los archivos de clave (rutas absolutas). La landing muestra el USDC que volvió a la wallet. **Refund after timeout** paga lo atestiguado y devuelve el resto. El tráfico de demo sigue en FakeProvider, sin Citrus. 250 MB en Brasil a 0,0025 USDC/MB sobre 10 USDC son 0,625 usados y 9,375 devueltos.
 
 ## Flujo de fondos automático
 
@@ -148,7 +163,7 @@ Se prende con un deploy nuevo, porque la config ahora guarda la clave del medido
 
 Sin esas variables la API no puede firmar un vale, y el programa viejo sigue rechazando un cierre que no firme el viajero.
 
-Falta, y no está en el código: abrir la cuenta de Bridge y crear la liquidation address, configurar en Citrus la tarjeta y la auto-recarga, y probar el lazo con una eSIM real. El redeploy en devnet de este programa está pendiente hasta que el script imprima un program id. Si `solana program deploy` dice que la cuenta del programa quedó chica, `solana program extend <program id> <bytes>` la agranda.
+Falta, y no está en el código: abrir la cuenta de Bridge y crear la liquidation address, configurar en Citrus la tarjeta y la auto-recarga, y probar el lazo con una eSIM real. El programa con clave de medidor ya está en devnet (arriba). Si `solana program deploy` dice que la cuenta del programa quedó chica, `solana program extend <program id> <bytes>` la agranda.
 
 ## Cheques
 

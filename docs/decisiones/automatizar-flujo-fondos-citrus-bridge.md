@@ -3,7 +3,7 @@
 **Fecha:** 5/10/2026 · **Estado:** el escrow (vales firmados por la clave
 del medidor, checkpoints y claims), el fondeo por tramos, el cobro y el
 cierre automáticos están implementados y con tests; el programa nuevo
-todavía no se desplegó en devnet. Bridge, la tarjeta de Citrus y la prueba
+está en devnet (`HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk`). Bridge, la tarjeta de Citrus y la prueba
 con una eSIM real siguen pendientes (§6).
 
 Esta decisión **reemplaza y extiende** la propuesta de la rama
@@ -223,11 +223,15 @@ Diferencias con lo escrito arriba:
   último `checkpoint` o `claim`. Lo que AstroAm puede perder es lo consumido
   después del último vale grabado.
 
-Pendiente, fuera del código: los pasos 1, 2, 4 y 5 de §5; desplegar el
-programa nuevo con `npm run solana:deploy` (la config pasó a 106 bytes y el
-programa `8QXPo6yVxZuC3goYzHVLsxVkE1J6BaEqZvfW9e3Do2uq` no se puede
-actualizar con `--upgrade`) y copiar a `.env` el `SOLANA_PROGRAM_ID` y el
-`SOLANA_METER_PUBKEY` que imprime; y la prueba con una eSIM real. Los
+Desplegado: como la config pasó a 106 bytes, el código nuevo es un
+programa nuevo en devnet, `HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk`
+(medidor `3WqaNhVVCCnabBLGA9YWviQHDvo6fTmX1Y9otcmsdB7k`). El primero,
+`8QXPo6yVxZuC3goYzHVLsxVkE1J6BaEqZvfW9e3Do2uq`, no se podía actualizar con
+`--upgrade`. Con FakeProvider se probaron depósito, checkpoint, claim y
+cierre.
+
+Pendiente, fuera del código: los pasos 1, 2, 4 y 5 de §5; la prueba del
+`refund` después del timeout; y la prueba con una eSIM real. Los
 webhooks de Citrus (`esim.balance_depleted`, `esim.defunded`) actualizan el
 registro de la eSIM pero no disparan el flujo de fondos: hoy se entera por
 la lectura periódica.
