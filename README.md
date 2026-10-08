@@ -349,7 +349,7 @@ What the eSIM provider allows, the architecture that results from it, and the op
 
 ## Go-to-market and validation
 
-Who buys, through which channel, at what price and margin: [docs/go-to-market.md](docs/go-to-market.md). Traveler interviews: [docs/validation.md](docs/validation.md).
+Who buys, through which channel, at what price and margin: [docs/go-to-market.md](docs/go-to-market.md). Traveler interviews and customer discovery insights from Argentine travelers in Jujuy: [docs/validation.md](docs/validation.md) and [docs/interviews.md](docs/interviews.md) (7-question framework in [docs/interview-guide.md](docs/interview-guide.md)).
 
 The USDC-per-GB figures below are the go-to-market rates: reseller cost of the cheapest network, times 1.5 (`MARKUP_BPS=15000`). Those costs were read on 7 October 2026. The card, roaming, and retail quotes were read on 8 October 2026, between 01:20 and 02:10 ART. The sample rates in the app (`pricePerMbUsdc`, Brazil 0.0025 USDC per MB) are examples for a demo with no live carrier. They are not this comparison.
 

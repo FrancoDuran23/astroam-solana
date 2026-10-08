@@ -91,6 +91,8 @@ Same figures as the README. AstroAm's column is the cheapest-network rate above 
 | Paraguay | **5.25** | 7.09 | 26% lower | 4.94 | 6% higher | 9.89 | **5.25** | 47% lower |
 | Bolivia | **2.76** | 9.69 | 72% lower | 7.02 | 61% lower | 14.05 | **2.76** | 80% lower |
 
+Customer discovery interviews with Argentine travelers in Jujuy confirmed that travelers routinely spend US$15 to US$30+ on carrier roaming or fixed packages with roughly 35% to 65% of the data expiring unused. See [validation.md](validation.md) and [interviews.md](interviews.md).
+
 A fully used 10 GB card pack: Chile and Uruguay US$3.25/GB (AstroAm 24% lower), Brazil US$2.47/GB (about the same: 24.80 USDC against US$24.72), Paraguay US$3.25/GB (AstroAm 61% higher), Bolivia US$4.55/GB (AstroAm 39% lower).
 
 | Destination | Cheapest 1 GB pack | Cheapest 5 GB pack | Cheapest 10 GB pack |
