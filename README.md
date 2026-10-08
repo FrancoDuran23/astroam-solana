@@ -2,7 +2,7 @@
 
 Prepaid travel data: you lock USDC on Solana, pay only for what a meter attests, and the rest comes back to your wallet.
 
-Demo for Colosseum / Superteam Argentina. Deadline: Sunday 11 October 2026, 23:59 ART. The traveler app started from the Stellar build ([FrancoDuran23/stellar_jujuy_dev@a19ed4d](https://github.com/FrancoDuran23/stellar_jujuy_dev/tree/a19ed4d)). The Soroban channel is not the payment path of this demo.
+Demo for Colosseum / Superteam Argentina. Deadline: Sunday 11 October 2026, 23:59 ART. The traveler app started from the Stellar build. The Soroban channel is not the payment path of this demo.
 
 ## Problem
 
