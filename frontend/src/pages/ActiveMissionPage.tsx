@@ -105,6 +105,8 @@ export default function ActiveMissionPage() {
           : 'DATA PAUSED'
         : 'LINK ACTIVE'
 
+  // With a live carrier there is no button that invents traffic: usage is what the carrier reports.
+  const demoTraffic = isDemoMode || caps?.demoTrafficEnabled !== false
   const providerLabel = mission.isMock === false && !isDemoMode ? 'eSIM provider' : 'Sample test eSIM'
   const iccidDisplay = mission.iccid || mission.esim?.iccid || '—'
 
@@ -334,7 +336,7 @@ export default function ActiveMissionPage() {
             VIEW eSIM
           </button>
 
-          <button
+          {demoTraffic && <button
             type="button"
             disabled={isPaused || actionLoading}
             onClick={() => void handleSimulate()}
@@ -342,12 +344,14 @@ export default function ActiveMissionPage() {
           >
             <span className="material-symbols-outlined text-base">bolt</span>
             USE {DEMO_TRAFFIC_MB} MB
-          </button>
+          </button>}
         </div>
       )}
       {!isCompleted && !isClosing && (
         <p className="mb-6 text-center font-mono text-[11px] text-textsecondary">
-          “Use {DEMO_TRAFFIC_MB} MB” simulates a reading from the carrier.
+          {demoTraffic
+            ? `“Use ${DEMO_TRAFFIC_MB} MB” simulates a reading from the carrier.`
+            : 'Usage comes from the carrier. A new reading can take 10 to 15 minutes to show.'}
           {meterAttests && " AstroAm's meter then attests the new total, with no wallet popup."}
         </p>
       )}
