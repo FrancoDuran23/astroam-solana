@@ -129,40 +129,62 @@ Team of four, based in Jujuy, Argentina, working full-time remote.
 | Daniel Palermo | [@DanielPalermoo](https://github.com/DanielPalermoo) | Backend and metering | Traffic meter, Soroban adapter, and CosmoPay gateway (Stellar build) |
 | Joel | [@Joel010999](https://github.com/Joel010999) | Frontend | Traveler app, mobile, eSIM flow in the UI, and product API (Stellar build) |
 
-### Trust model
+### Custody and trust model
 
-AstroAm's meter key is the only key that can sign a usage voucher. The program stores that public key in its config at initialize. `checkpoint`, `claim` and `close` check the signature with the ed25519 precompile, through the instructions sysvar. A voucher signed by the traveler, by the session key registered at deposit, or by the payee is rejected. The traveler therefore cannot block settlement, and cannot understate what was used, by withholding a signature.
+This is what `programs/astroam-escrow` does on devnet program `HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk`. A Squads multisig, a frozen upgrade authority, and a timelock are planned below. None of them is deployed.
 
-The amount charged can never exceed the deposit. `checkpoint`, `claim` and `close` reject a cumulative amount above it, and `close` also rejects an amount below what was already claimed or below the last checkpoint. The traveler's refund is `deposit − attested`.
+**Where the USDC sits.** `deposit` opens two accounts for that trip. The escrow PDA (`["escrow", escrow id]`) is owned by the program and stores the traveler. The vault PDA (`["vault", escrow id]`) is the SPL token account that holds the USDC. The Token program owns the vault account. Its token authority is the escrow PDA, and the program signs transfers out as that PDA. The deposit credits that vault. It does not credit a team wallet.
 
-Each traveler has their own escrow PDA, derived from that trip's escrow id, and a token vault PDA that holds the USDC. Both accounts are owned by the program. Nobody on the team can move that USDC with a wallet: the program only transfers it to the configured payee (the attested amount) or back to the traveler (the remainder).
+**Who signs.** `deposit` and `topUp` require the traveler's signature. `checkpoint`, `claim`, `close`, and `refund` accept any fee payer, so the traveler cannot block settlement by withholding a signature. The session key stored at deposit is never checked. For `checkpoint`, `claim`, and `close`, the previous instruction must be an ed25519 verification of `AstroAmEscrow:v1:close || program id || escrow id || amount`, signed by the meter pubkey stored at `initialize`. A voucher from the traveler, the session key, or the payee is rejected, so those keys cannot set the amount.
 
-Usage is metered off-chain, so a meter that over-reports could charge more than the traveler used, up to the deposit. That is bounded by the cap above, and it is auditable: every checkpoint and close is a transaction whose voucher message is `AstroAmEscrow:v1:close || program id || escrow id || amount`, signed by the published meter key. The carrier's usage record for the same ICCID is the other side of that check. A disagreement is visible on the explorer and in the provider's usage log; it does not require trusting a traveler signature.
+**What the meter can attest.** The cumulative amount must be at most the deposit and at least the amount already claimed. `close` also rejects an amount below the last checkpoint, so a later voucher cannot undercut one already recorded. `checkpoint` writes the amount, moves no USDC, and does not restart the timeout. The meter cannot name a recipient. `initialize` writes the payee and the meter once. No instruction changes either pubkey.
 
-The program upgrade authority is still the deployer key (`9NMAvdKGJibTUFW4mWRfVd4sZRpLNo3fQCQMqdrXXV89` on the current devnet deployment). The payee that receives used USDC is that same key. Both are planned to move to a 2-of-3 Squads multisig so no single laptop can upgrade the program or spend the treasury. The USDC sitting in a traveler's vault is not part of that treasury: the multisig cannot transfer it either.
+**Where a payout can go.** USDC leaves the vault only through these three instructions:
 
-**Why it is still the deployer key.** Three reasons, none of them a design choice:
+- `claim` sends `cumulative − claimed` to a token account owned by the configured payee, leaves the escrow open, and restarts the timeout.
+- `close` sends `cumulative − claimed` to that payee and `deposit − cumulative` to the traveler, in the same transaction, then marks the escrow settled.
+- `refund` runs only after `timeout` seconds from the last deposit, top-up, or claim (604800 seconds on this config, 7 days). It sends `attested − claimed` to the payee and `deposit − attested` to the traveler. It uses the attested amount already stored and takes no new voucher. A checkpoint does not move that deadline.
 
-- The program was redeployed on 2026-10-07 to store the meter key. A redeploy and its `initialize` are signed by one keypair, and the team has not created the Squads multisig on devnet yet.
-- The payee is written into the program config at `initialize` and there is no instruction to change it. Moving the payee to a multisig therefore means deploying the program again with the multisig as payee, not sending one transaction.
-- The backend's treasury sweep signs with the payee key. A multisig payee cannot sign from a server, so the sweep has to become a proposal the signers approve.
+No instruction lends, stakes, or wraps the vault balance. The signed voucher message is in the checkpoint, claim, and close transactions, so the attested amount is on the explorer.
 
-What that key can and cannot do today: it can upgrade the program and it receives the USDC that vouchers release. It cannot take USDC out of a traveler's vault, because the program only pays the configured payee the amount a meter voucher states. An upgrade could change that rule, which is the reason to move the upgrade authority first.
+**What is still trusted.** Two powers sit outside those rules.
 
-After the Squads vault exists:
+- The upgrade authority can replace the program. The limits above are the deployed code. A replacement could move the same vault under different rules, because the PDA signature belongs to the program id. That authority is stored on the program data account by the BPF upgradeable loader. The program config does not contain it.
+- The meter key can sign a cumulative amount above the data actually used, up to the deposit. The program checks the signature and the cap. It does not read a carrier usage record.
+
+The payee key receives USDC only after a voucher within that cap, or, on timeout, only `attested − claimed`. It has no instruction that pulls an arbitrary amount from a vault.
+
+**Current keys on devnet.** One key, `9NMAvdKGJibTUFW4mWRfVd4sZRpLNo3fQCQMqdrXXV89`, is the payee in config `4igZjvwU4sfiu4dsRAzcyk2PqQGBgZqhJ8ddnczXpy3o` and the upgrade authority on the program data account. On the 2026-10-07 run that same key signed the checkpoints, the claims, and the close. The program has no operator field: any account with SOL can pay those fees. A separate meter key, `3WqaNhVVCCnabBLGA9YWviQHDvo6fTmX1Y9otcmsdB7k`, signs the vouchers. The private keys are held by a team member. Ignacio holds the deployer key. They are not in the repo.
+
+The payee and the upgrade authority are still that one key, for three reasons:
+
+- The 2026-10-07 redeploy and its `initialize` are signed by one keypair. The Squads multisig has not been created.
+- The payee is fixed at `initialize`. There is no `set_payee` instruction, so a multisig payee means deploying again.
+- A server cannot sign as a Squads multisig. Sweeping USDC already paid to the payee has to become a proposal the signers approve.
+
+**Plan (not done).** None of the following is implemented.
+
+- Move the upgrade authority and the payee to a Squads multisig, 2 of 3: Franco Durán, Ignacio Martín, and Daniel Palermo. Settled USDC would go from the payee to that multisig treasury. The treasury would fund the USD card that pays the eSIM provider. The multisig would hold the upgrade authority and would receive settled USDC. It would not be the vault's token authority. An upgrade could still change that.
+- The treasury and offramp path is not running. It stays that way until the company entity exists.
+- Escrows are not lent and earn no yield. The plan is to keep them that way.
+- Before mainnet, consider freezing upgrades or adding a timelock.
+- Rotate the meter key and keep it in a separate signer service, apart from the multisig. This program has no instruction that changes the meter, so a rotation needs a new deployment or an upgrade.
+
+After a Squads vault exists, the upgrade authority moves with one command. The payee still needs a new deployment, or a sweep of USDC the current payee has already received:
 
 ```bash
-# Program upgrades then require 2 of 3 signers.
+# Planned. Not run. Upgrades would then require 2 of 3 signers.
 solana program set-upgrade-authority <PROGRAM_ID> \
   --new-upgrade-authority <SQUADS_VAULT> \
   --keypair <CURRENT_UPGRADE_AUTHORITY>
 
-# The payee is fixed in the program config and there is no set_payee
-# instruction. Point a new deployment at the vault:
+# No set_payee instruction. A new deployment points at the vault:
 #   export SOLANA_PAYEE_ADDRESS=<SQUADS_VAULT>
 #   npm run solana:deploy
 # or sweep USDC already collected by the current payee to that vault.
 ```
+
+**Why this is not custody of traveler funds.** This describes the program. It is not legal advice. While an escrow is open, the traveler's USDC is in that trip's vault, and the token authority is the escrow PDA. The program pays the configured payee only an attested amount up to the deposit, and returns the remainder to the traveler on `close` or, after the timeout, on `refund`. That balance is not lent and it earns no yield. What the key holders still have is the upgrade authority, which can change the program, and the meter key, which can over-attest up to the deposit. USDC already paid to the payee has left the vault. Moving the payee and the upgrade authority to the 2-of-3 multisig is planned and is not done. Whether a regulator would still treat any part of this as custody of third-party funds, including PSAV registration with the CNV in Argentina, is a legal question. This README does not answer it.
 
 ## Try it in 5 minutes
 
@@ -346,7 +368,7 @@ What we have learned from travelers so far, and the interview script: [docs/vali
 ## Roadmap
 
 1. **Issue a real eSIM from the flow and close 10 sessions with travelers on a real trip.** Owner: Joel. The Citrus reseller account, API key and balance exist. What is missing is in [docs/real-esim.md](docs/real-esim.md).
-2. Move the upgrade authority and the payee to a 2-of-3 Squads multisig. Owner: Ignacio, who holds the deployer key.
+2. Move the upgrade authority and the payee to a 2-of-3 Squads multisig. Owner: Ignacio, who holds the deployer key. What that changes, and what is still trusted today: [Custody and trust model](#custody-and-trust-model).
 3. Return the escrow and vault rent to the traveler at `close`.
 4. Legal review of the draft terms, including the refund rule and the Argentine right of withdrawal (botón de arrepentimiento), then publish a contact for that request.
 5. Bridge liquidation address for collected USDC, only after the provider account exists. See `docs/decisiones/automatizar-flujo-fondos-citrus-bridge.md`.
