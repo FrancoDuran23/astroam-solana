@@ -25,3 +25,6 @@ programs/astroam-escrow/target/
 **/*-keypair.json
 id.json
 meter.json
+
+# Colosseum feedback report
+docs/feedback-colosseum-superteam.md
