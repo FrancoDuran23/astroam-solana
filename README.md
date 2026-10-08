@@ -349,9 +349,111 @@ What the eSIM provider allows, the architecture that results from it, and the op
 
 ## Go-to-market and validation
 
-Who buys, through which channel, at what price and margin: [docs/go-to-market.md](docs/go-to-market.md). The rates there are Citrus's published reseller rates, read on 2026-10-07.
+Who buys, through which channel, at what price and margin: [docs/go-to-market.md](docs/go-to-market.md). Traveler interviews: [docs/validation.md](docs/validation.md).
 
-What we have learned from travelers so far, and the interview script: [docs/validation.md](docs/validation.md). It is one interview, with the founder. Demand is not validated yet.
+The USDC-per-GB figures below are the go-to-market rates: reseller cost of the cheapest network, times 1.5 (`MARKUP_BPS=15000`). Those costs were read on 7 October 2026. The card, roaming, and retail quotes were read on 8 October 2026, between 01:20 and 02:10 ART. The sample rates in the app (`pricePerMbUsdc`, Brazil 0.0025 USDC per MB) are examples for a demo with no live carrier. They are not this comparison.
+
+### Target market
+
+The first buyers are Argentine travelers going to a neighboring country: Chile, Brazil, Uruguay, Paraguay, or Bolivia. The buyer is the traveler, and they already hold USDC.
+
+We launch with Argentina's neighbors (Chile, Brazil, Uruguay, Paraguay, Bolivia); expansion covers all 220 destinations our eSIM provider supports.
+
+On the cheapest network the traveler pays **2.48 USDC/GB** in Chile, Brazil, and Uruguay, **2.76** in Bolivia, and **5.25** in Paraguay. Against the cheapest eSIM paid with an Argentine card in pesos, 30% percepción included, that rate is lower on every 1 GB pack in the table below, and lower on a fully used 5 GB pack in Chile, Brazil, Uruguay, and Bolivia. In Paraguay a fully used 5 GB pack is 6% cheaper than AstroAm, and a fully used 10 GB pack is 61% cheaper. When the traveler uses about half of a card pack, AstroAm's price per GB used stays the same, because the unused deposit is refunded, and the card pack's price per GB used doubles.
+
+A later onboarding step, not built yet, would ask trip length and a usage profile and recommend the cheaper of two ways to pay. Light or uncertain usage (maps and messaging, or a trip whose usage is unclear) stays on pay-per-MB, and unused funds come back to the wallet. Heavy, predictable usage (video calls and streaming) can take a prepaid block of gigabytes at our eSIM provider's public retail rate, which is lower per GB. That block costs less once the traveler uses about **3.7 GB of a 5 GB block**, or about **7.4 GB of a 10 GB block**. The arithmetic is under [Smart plan selection](#smart-plan-selection-planned).
+
+### Go-to-market / Sales channels
+
+**Planned. Nothing here is running.** As of 8 October 2026 no terminal, agency, creator, or wallet company has been contacted, no QR is up, and no referral fee has been paid. The same plan is in [docs/go-to-market.md](docs/go-to-market.md).
+
+These five are how AstroAm would reach an Argentine traveler leaving for Chile, Brazil, Uruguay, Paraguay, or Bolivia. CAC is cash spent on that channel divided by travelers who finish a deposit. Conversion is deposits divided by the scans, links, or referrals that channel produced. The pilot ask is still ten real trips in 60 days.
+
+| Channel | Why it fits | Cost | How we would measure it |
+|---|---|---|---|
+| Point of departure | Bus terminals, border crossings, and airports on the Jujuy–Salta corridor are where people leave for Chile and Bolivia. A QR there is the deposit link at the moment they need data. Brazil, Uruguay, and Paraguay use the same QR with agencies and groups that sell those trips. | Printing, and permission to put a poster up. No site has agreed. | Scans to deposits. CAC = print cost / deposits. |
+| Travel agencies and tour operators | They sell packages to the neighbor countries and talk to the traveler when the trip is booked. | No retainer. A referral fee in USDC, paid automatically from the per-GB margin, and only after a deposit. The fee is not set, and the automatic payment is not in the code. Gross margin before that fee is 0.83 USDC/GB in Chile, Brazil, and Uruguay, 0.92 in Bolivia, and 1.75 in Paraguay. On a first trip the $1.75 eSIM issue fee is still there. | Referrals to deposits. CAC = fees paid / deposits. |
+| Crypto communities | Early adopters who already hold USDC and a Solana wallet. The founder runs [jujuy.dev](https://jujuy.dev.ar) and counts 430+ members. Superteam Argentina is the other room the team can post in. Membership is reach, not customers. | Time. No sponsorship and no deal. | Posts to deposits. Cash CAC is about zero. |
+| Traveler groups and creators | Facebook and WhatsApp groups, and creators who post trips across the border, reach people who are not in a crypto community. | Time, or a creator fee if one is paid. No group and no creator is signed. | Link clicks to deposits. CAC = fees / deposits. |
+| Wallet links | A Phantom or Solana Pay link is the deposit, including the one encoded in the QR and the referral. It does not need a wallet company to agree. Travelers who only have pesos still need a guide to get USDC. | Build time. No integration deal. Solana Pay is on the roadmap and is not built. | Links opened to deposits. |
+
+### Pricing vs. what Argentine travelers pay today
+
+We launch with Argentina's neighbors (Chile, Brazil, Uruguay, Paraguay, Bolivia); expansion covers all 220 destinations our eSIM provider supports.
+
+The card column is the cheapest pack of that size among Airalo, Saily, Nomad, Roamless, and Ubigi (Ubigi checked for Brazil). List price in US dollars, times 2,002 / 1,539.01 (×1.3008): the dólar tarjeta (ARS 2,002, official rate plus the 30% percepción) converted at the MEP rate (ARS 1,539.01). Both rates are from Ámbito on 8 October 2026 at 00:06. "Lower" means AstroAm's USDC per GB is below that card price. "Higher" means it is above. At half use, the card figure is the whole pack price divided by half the gigabytes. AstroAm stays on its pay-per-MB rate, because the escrow refunds what was not used.
+
+| Destination | AstroAm (USDC/GB) | Card eSIM, 1 GB (US$/GB) | vs 1 GB | Card eSIM, 5 GB (US$/GB) | vs 5 GB | 5 GB pack, half used (US$ per GB used) | AstroAm, half used (USDC per GB used) | vs half-used 5 GB |
+|---|---|---|---|---|---|---|---|---|
+| Chile | **2.48** | 5.79 | 57% lower | 3.64 | 32% lower | 7.28 | **2.48** | 66% lower |
+| Brazil | **2.48** | 5.14 | 52% lower | 3.12 | 21% lower | 6.24 | **2.48** | 60% lower |
+| Uruguay | **2.48** | 7.81 | 68% lower | 4.94 | 50% lower | 9.89 | **2.48** | 75% lower |
+| Paraguay | **5.25** | 7.09 | 26% lower | 4.94 | 6% higher | 9.89 | **5.25** | 47% lower |
+| Bolivia | **2.76** | 9.69 | 72% lower | 7.02 | 61% lower | 14.05 | **2.76** | 80% lower |
+
+A fully used 10 GB card pack, same conversion: Chile and Uruguay US$3.25/GB (AstroAm 24% lower), Brazil US$2.47/GB (about the same: 24.80 USDC against US$24.72), Paraguay US$3.25/GB (AstroAm 61% higher), Bolivia US$4.55/GB (AstroAm 39% lower).
+
+| Destination | Cheapest 1 GB pack | Cheapest 5 GB pack | Cheapest 10 GB pack |
+|---|---|---|---|
+| Chile | Roamless, US$4.45, 30 days | Nomad, US$14, 30 days | Nomad, US$25, 30 days |
+| Brazil | Roamless, US$3.95, 30 days | Airalo, US$12, 7 days (Nomad is US$12 for 30 days) | Nomad, US$19, 30 days (Ubigi is the same price) |
+| Uruguay | Nomad, US$6, 7 days | Nomad, US$19, 30 days | Nomad, US$25, 30 days |
+| Paraguay | Roamless, US$5.45, 30 days | Nomad, US$19, 30 days | Nomad, US$25, 30 days |
+| Bolivia | Roamless, US$7.45, 30 days | Airalo, US$27, 7 days | Airalo, US$35, 7 days |
+
+The charge follows the network the phone uses (that network's cost × 1.5). The table is the cheapest network. In Brazil the go-to-market costs put Claro at 6.21 USDC/GB and TIM at 7.26. Public rates on 8 October 2026, times 1.35, put a dearer network near 6.91 USDC/GB in Chile, 7.26 in Brazil, 8.61 in Uruguay, and 6.22 in Paraguay. Bolivia's networks were the same price. On those dearer networks a fixed pack can cost less.
+
+Three limits on the comparison:
+
+- **Paying from a US dollar account** skips the 30% percepción, so the eSIM costs its list price. At list price, AstroAm is still lower on the small packs. It is higher in Brazil at 5 GB (US$2.40/GB) and at 10 GB (US$1.90/GB), and in Paraguay from 3 GB up (3 GB US$4.67, 5 GB US$3.80, 10 GB US$2.50, against 5.25). Chile and Uruguay at 10 GB are US$2.50/GB, about the same as 2.48.
+- **Personal and Movistar roaming packs**, priced in pesos with IVA and converted at MEP, are often lower per GB when the traveler uses the whole pack. Personal's 5 GB / 15 day pack for Brazil, Paraguay, Uruguay, and Chile is ARS 15,000, US$1.95/GB, with the legal text valid from 21 September 2026 to 20 October 2026. Movistar's 3 GB / 7 day neighbors pack is ARS 10,800, US$2.34/GB, and it includes Bolivia. The published validity is 1–31 August 2026; the page was still up on 8 October 2026. Two of those Movistar packs, the documented way to cover 5 GB in Bolivia, are US$14.03, or US$2.81 per GB of the 5 GB, just above AstroAm's 2.76. Some Personal and Claro postpaid plans already include roaming in Mercosur and Chile, so the extra data charge on those plans is zero. At half use the Personal pack is US$3.90 per GB used and the Movistar 3 GB pack is US$4.68. AstroAm at 2.48, and Bolivia at 2.76, sit below those. Paraguay at 5.25 stays above Personal's US$3.90.
+- **Our eSIM provider's own public retail price** is lower than AstroAm on the cheapest network: 1.84 US$/GB in Chile, Brazil, and Uruguay, 3.89 in Paraguay, and 2.05 in Bolivia. With the same 30% percepción that is about 2.39, 5.06, and 2.67 US$/GB, still under 2.48, 5.25, and 2.76. AstroAm's pay-per-MB rate is that retail price times 1.35 (reseller cost is 10% under retail, then `MARKUP_BPS=15000`).
+
+What AstroAm adds is the refund. The traveler deposits USDC into a per-trip escrow, pays the megabytes the meter attests, and the unused balance returns to the wallet in the close. Airalo, Saily, and Holafly refund a plan that was never activated. Once the plan is activated, unused data is spent. Because of that, using half of a card pack doubles its cost per GB used, and AstroAm's cost per GB used does not change.
+
+The $1.75 fee to issue an eSIM is not in these per-GB figures. Whether the first trip charges 1.75 USDC for it is not decided. Buying the USDC with pesos at the crypto rate (ARS 1,605.09) instead of MEP adds about 4.3%, and that is not in the table. VAT on digital services is not added: these sellers are not on ARCA's list. Provincial gross-income tax (about 2% in some provinces) is not added either. Impuesto PAIS ended on 23 December 2024. Airalo's gigabyte is 1,024 MB and these AstroAm rates use 1,000 MB. The gap is under 2.4% and is not adjusted. The provider's public site lists 220 destinations; its FAQ also says "200+ countries and territories." This note uses 220 destinations.
+
+Sources, read on 8 October 2026 unless the line says otherwise:
+
+- AstroAm USDC/GB: [docs/go-to-market.md](docs/go-to-market.md), reseller costs read 7 October 2026, traveler price = cost × 1.5.
+- Exchange rates: [Ámbito, 8 October 2026](https://www.ambito.com/finanzas/dolar-hoy-cuanto-cotiza-este-jueves-8-octubre-n6331412). The 30% percepción is RG 5617/2024. Dólar tarjeta that day was published as the official rate plus 30%.
+- Chile packs: [Roamless](https://roamless.com/esim/chile-esim), [Nomad](https://www.nomadesim.com/chile-eSIM). Also compared: [Airalo](https://www.airalo.com/chile-esim), [Saily](https://saily.com/esim-chile/).
+- Brazil packs: [Roamless](https://roamless.com/esim/brazil-esim), [Airalo](https://www.airalo.com/brazil-esim), [Nomad](https://www.nomadesim.com/brazil-eSIM), [Ubigi](https://cellulardata.ubigi.com/rates-and-coverage/brazil-data-plans/). Also compared: [Saily](https://saily.com/esim-brazil/).
+- Uruguay packs: [Nomad](https://www.nomadesim.com/uruguay-eSIM). Also compared: [Airalo](https://www.airalo.com/uruguay-esim), [Saily](https://saily.com/esim-uruguay/), [Roamless](https://roamless.com/esim/uruguay-esim).
+- Paraguay packs: [Roamless](https://roamless.com/esim/paraguay-esim), [Nomad](https://www.nomadesim.com/paraguay-eSIM). Also compared: [Airalo](https://www.airalo.com/paraguay-esim), [Saily](https://saily.com/esim-paraguay/).
+- Bolivia packs: [Roamless](https://roamless.com/esim/bolivia-esim), [Airalo](https://www.airalo.com/bolivia-esim). Also compared: [Nomad](https://www.nomadesim.com/bolivia-eSIM), [Saily](https://saily.com/esim-bolivia/).
+- Unused-data terms: [Airalo](https://airalo.com/legal/terms-of-use), [Saily](https://support.saily.com/hc/en-us/articles/16420576170652-What-is-Saily-s-refund-policy), [Holafly](https://esim.holafly.com/refund-policy/).
+- Personal roaming: [personal.com.ar/roaming](https://www.personal.com.ar/roaming). Movistar packs: [packs roaming pospago](https://www.movistar.com.ar/legales/roaming/packs-roaming-pospago). Claro included roaming: [Chile and Uruguay](https://www.claro.com.ar/personas/roaming/terminos-condiciones-chile-uruguay), [Brazil](https://www.claro.com.ar/personas/roaming/brasil).
+- Public retail rates and the 220-destination count, on our eSIM provider's site: [home](https://citrusmobile.com/), [rates](https://citrusmobile.com/rates), [Chile](https://citrusmobile.com/chile), [Brazil](https://citrusmobile.com/brazil), [Uruguay](https://citrusmobile.com/uruguay), [Paraguay](https://citrusmobile.com/paraguay), [Bolivia](https://citrusmobile.com/bolivia).
+
+### Smart plan selection (planned)
+
+**Planned. Not implemented.** No screen, API, or provider call does this.
+
+Onboarding would ask how long the trip is and which profile fits: maps and messaging, social, or video calls and streaming. From that it would estimate gigabytes and recommend the cheaper option.
+
+- **Pay-per-MB escrow**, for light or uncertain usage. The traveler pays the go-to-market rate only for megabytes used. The unused deposit returns to the wallet.
+- **A prepaid block of gigabytes** from our eSIM provider's catalog, for heavy, predictable usage. The block is priced at the provider's public retail rate, which is lower per GB.
+
+The repo's note on that catalog says the provider sells a prepaid balance at a per-GB rate, and does not sell named plans (`docs/citrus-mobile-brief.md`). There is no separate fixed-plan price list in the repo. The breakeven below treats a "fixed bundle" as G gigabytes prepaid at the public retail rate. Unused gigabytes on that block are counted as spent, because they are not returned to the wallet automatically. The provider's public FAQ says unused balance can be refunded if the traveler asks support. That is a support request, and it is separate from AstroAm's on-chain refund. Pay-per-MB costs the AstroAm rate times gigabytes actually used. 1 USDC = 1 USD, which is what the code assumes (`USDC_USD_RATE_BPS=10000`).
+
+The prepaid block costs less when gigabytes used are above:
+
+`G × (retail US$/GB) / (AstroAm USDC/GB)`
+
+Retail rates, cheapest network, public pages, 8 October 2026: Chile, Brazil, and Uruguay 1.84; Paraguay 3.89; Bolivia 2.05.
+
+| Destination | Retail (US$/GB) | AstroAm (USDC/GB) | Use more than this share of the block | 5 GB block, breakeven | 10 GB block, breakeven |
+|---|---|---|---|---|---|
+| Chile, Brazil, Uruguay | 1.84 | 2.48 | 74.2% (1.84 / 2.48) | 3.71 GB | 7.42 GB |
+| Paraguay | 3.89 | 5.25 | 74.1% (3.89 / 5.25) | 3.70 GB | 7.41 GB |
+| Bolivia | 2.05 | 2.76 | 74.3% (2.05 / 2.76) | 3.71 GB | 7.43 GB |
+
+Worked example, a 5 GB block in Chile, Brazil, or Uruguay: `5 × 1.84 / 2.48 = 3.71` GB. Below 3.71 GB used, pay-per-MB costs less. At 3.71 GB the two cost the same: `3.71 × 2.48` and `5 × 1.84` are both 9.20. Above 3.71 GB the prepaid block costs less. Paraguay: `5 × 3.89 / 5.25 = 3.70` GB. Bolivia: `5 × 2.05 / 2.76 = 3.71` GB. The 10 GB column is the same division with G = 10.
+
+The share is about 1/1.35 (74%) because the traveler's pay-per-MB rate is the retail rate times 1.35. The table uses the rounded prices published above, so the shares land between 74.1% and 74.3%.
+
+Left out of both sides: the $1.75 issue fee, and the card's 30% percepción. This comparison is retail dollars against AstroAm USDC. The per-profile gigabyte estimates (how many GB a week of maps, or of video calls, actually is) are not in the repo, so they are not stated here.
 
 ## What is real, and what is not
 
@@ -363,6 +465,8 @@ What we have learned from travelers so far, and the interview script: [docs/vali
 | USDC | Circle's devnet mint, once the traveler holds some. |
 | eSIM | Sample test profile from `FakeProvider`. No line is issued. The Citrus adapter stays behind `CONNECTIVITY_PROVIDER=citrus` and is not called. |
 | Budget assistant | Rules in the app (daily limit, 20% warning). No model is called. |
+| Smart plan selection | Planned onboarding. Not implemented. The comparison is under [Smart plan selection](#smart-plan-selection-planned). |
+| Sales channels | Planned. No QR, referral, creator, or wallet deal is live. See [Go-to-market / Sales channels](#go-to-market--sales-channels). |
 | Demo video | [`docs/demo/AstroAm-demo-EN.mp4`](docs/demo/AstroAm-demo-EN.mp4) is an older recording. Its picture still says things this README no longer claims. It was not re-recorded: this environment has no Phantom extension and no funded traveler wallet. |
 
 ## Roadmap
