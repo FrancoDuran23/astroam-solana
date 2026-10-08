@@ -476,6 +476,7 @@ Left out of both sides: the $1.75 issue fee, and the card's 30% percepción. Thi
 3. Return the escrow and vault rent to the traveler at `close`.
 4. Legal review of the draft terms, including the refund rule and the Argentine right of withdrawal (botón de arrepentimiento), then publish a contact for that request.
 5. Bridge liquidation address for collected USDC, only after the provider account exists. See `docs/decisiones/automatizar-flujo-fondos-citrus-bridge.md`.
+6. **Direct wholesale supply, as volume grows.** Planned. No extra supplier is signed. The model already in the code scales as it is: `CONNECTIVITY_PROVIDER` is pluggable, any wholesale eSIM API can sit behind it, and the escrow, the meter, and the refund do not depend on which supplier that is. Once the company entity exists and volume justifies it, add direct wholesale eSIM platforms (multi-network wholesalers with APIs) and, later, carrier agreements in the launch corridor (Chile, Brazil, Uruguay, Paraguay, Bolivia), and route each traveler to the cheapest supplier for that country and network. A lower cost per GB leaves room to lower the traveler price or to fund the agency referral fee, and a second supplier keeps a route covered.
 
 ## Checks
 
