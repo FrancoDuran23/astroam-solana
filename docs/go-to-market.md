@@ -167,3 +167,7 @@ Not solved. Today the buyer needs Phantom or Solflare and USDC on Solana. A Sola
 Ten sessions with real travelers on a real trip, with a real eSIM. Owner: Joel.
 
 What it measures: how many finish the deposit without help, how many gigabytes they use, what share of the deposit is refunded, and whether they would pay again.
+
+## Later supply
+
+**Planned.** No extra supplier is signed. The same step is README roadmap item 6. The model already scales: the supplier sits behind `CONNECTIVITY_PROVIDER`, any wholesale eSIM API can take that place, and the escrow, the meter, and the refund stay the same. Once the company entity exists and volume justifies it, add direct wholesale eSIM platforms (multi-network wholesalers with APIs) and, later, carrier agreements in the launch corridor, and route each traveler to the cheapest supplier for that country and network. A lower cost per GB leaves room to lower the traveler price or to fund the agency referral fee, and a second supplier keeps a route covered.
