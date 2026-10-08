@@ -16,21 +16,33 @@ function getId(req: Request): string {
   return Array.isArray(raw) ? raw[0] : raw
 }
 
+/**
+ * CORS for the traveler app when it is served from another origin (Vercel,
+ * Netlify). The app sends its requests with credentials, and a browser drops
+ * the response to such a request unless the server allows credentials for
+ * that exact origin. A wildcard origin cannot do that, so the header is only
+ * sent when FRONTEND_ORIGIN names one.
+ */
+export function cors(req: Request, res: Response, next: NextFunction): void {
+  const origin = process.env.FRONTEND_ORIGIN || '*'
+  res.setHeader('Access-Control-Allow-Origin', origin)
+  if (origin !== '*') {
+    res.setHeader('Access-Control-Allow-Credentials', 'true')
+    res.setHeader('Vary', 'Origin')
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(204)
+    return
+  }
+  next()
+}
+
 export function createProductRouter(service: MissionProductService): Router {
   const router = Router()
 
-  // CORS Middleware
-  router.use((_req: Request, res: Response, next: NextFunction) => {
-    const origin = process.env.FRONTEND_ORIGIN || '*'
-    res.setHeader('Access-Control-Allow-Origin', origin)
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-    if (_req.method === 'OPTIONS') {
-      res.sendStatus(204)
-      return
-    }
-    next()
-  })
+  router.use(cors)
 
   // Auth & Live Guard Middleware for mutable endpoints when live mode is active
   const requireAuthIfNeeded = (req: Request, res: Response, next: NextFunction) => {

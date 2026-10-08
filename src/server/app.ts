@@ -4,7 +4,7 @@
 
 import express, { type ErrorRequestHandler, type Express } from "express";
 import { createCitrusWebhooksRoute, type CitrusWebhooksRouteOptions } from "./routes/citrus-webhooks.ts";
-import { createProductRouter } from "../product/api/routes.ts";
+import { cors, createProductRouter } from "../product/api/routes.ts";
 import { bootProductService } from "../product/runtime/product-boot.ts";
 import type { MissionProductService } from "../product/services/MissionProductService.ts";
 
@@ -45,6 +45,9 @@ export function createServerApp(options: CreateServerAppOptions = {}): Express {
   app.use(express.json());
 
   const productService = options.productService ?? bootProductService(process.env);
+
+  // /health and /ready are outside /api, and the app reads them from its own origin too.
+  app.use(["/health", "/ready"], cors);
 
   app.get("/health", (_req, res) => {
     res.json({ status: "alive" });
