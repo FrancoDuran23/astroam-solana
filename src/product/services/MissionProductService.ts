@@ -39,6 +39,7 @@ import {
   type AutoCloseReason,
   type FundFlowConfig,
 } from './fund-flow.ts'
+import type { ResellerFundingGate } from '../../services/ResellerFundingGate.ts'
 
 const MICRO_USD_PER_CENT = 10_000n
 /** Provider rounding on a fund, in cents (the same margin FundingService uses). */
@@ -71,6 +72,7 @@ export type MissionProductServiceOptions = {
   escrowChain?: EscrowChain
   /** Signs cumulative usage vouchers. The traveler does not. */
   meter?: MeterSigner
+  fundingGate?: ResellerFundingGate
   fundFlow?: FundFlowConfig
   /** How long to wait between reads while a deposit reaches the RPC node, ms. */
   depositReadRetryMs?: number
@@ -95,6 +97,7 @@ export class MissionProductService {
   private hasCitrusReal: boolean
   private chain: EscrowChain | undefined
   private meter: MeterSigner | undefined
+  private fundingGate: ResellerFundingGate | undefined
   private fundFlow: FundFlowConfig
   private depositReadRetryMs: number
   private logger: (line: Record<string, unknown>) => void
@@ -112,6 +115,7 @@ export class MissionProductService {
     this.hasCitrusReal = options.hasCitrusReal ?? false
     this.chain = options.escrowChain
     this.meter = options.meter
+    this.fundingGate = options.fundingGate
     this.fundFlow = options.fundFlow ?? DEFAULT_FUND_FLOW
     this.depositReadRetryMs = options.depositReadRetryMs ?? 600
     this.logger = options.logger ?? ((line) => process.stdout.write(`${JSON.stringify(line)}\n`))
@@ -378,6 +382,10 @@ export class MissionProductService {
     // Idempotent
     if (mission.status === 'active' && mission.iccid && mission.esim) {
       return { missionId: mission.id, status: mission.status, isMock: !this.hasCitrusReal, esim: mission.esim }
+    }
+
+    if (this.fundingGate) {
+      this.fundingGate.assertCanProvisionNewEsim()
     }
 
     const esimRecord = await this.connectivity.provisionEsim(mission.userId)
@@ -1014,6 +1022,10 @@ export class MissionProductService {
       this.fundFlow,
     )
     if (amount === 0) return 0
+
+    if (this.fundingGate) {
+      this.fundingGate.assertCanTopUpTranche()
+    }
 
     mission.pendingFund = { amountCents: amount, requestedAt: new Date().toISOString() }
     await this.repo.save(mission)

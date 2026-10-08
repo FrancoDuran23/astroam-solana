@@ -1,10 +1,9 @@
-// Server entrypoint (`npm run server`): listens first, so a bad provider
-// config never prevents the process from starting.
-
+import path from "node:path";
 import "dotenv/config";
 import { createConnectivityProvider } from "../providers/connectivity/createConnectivityProvider.ts";
 import { CitrusWebhookHandler } from "../services/CitrusWebhookHandler.ts";
 import { webhookEventPath, WebhookEventLog } from "../persistence/webhook-event.ts";
+import { openResellerFundingGate } from "../services/ResellerFundingGate.ts";
 import { createPaymentRail } from "../rails/createPaymentRail.ts";
 import { bootProductService } from "../product/runtime/product-boot.ts";
 import { createEscrowChain, type EscrowChain } from "../solana/EscrowChain.ts";
@@ -22,6 +21,9 @@ const log = (line: Record<string, unknown>) => process.stdout.write(`${JSON.stri
 
 const rail = createPaymentRail(env);
 const network = rail.network;
+
+// Single shared funding gate instance across product service & Citrus webhooks.
+const fundingGate = openResellerFundingGate(path.join(dataDir, network, "funding-halt.json"), log);
 
 // Operator key (SOLANA_OPERATOR_KEYPAIR): with it the backend reads deposits
 // from the escrow, funds the eSIM in tranches and sends claims and closes. A
@@ -46,7 +48,7 @@ try {
     detail: error instanceof Error ? error.message : String(error),
   });
 }
-const productService = bootProductService(env, rail, escrowChain, meter);
+const productService = bootProductService(env, rail, escrowChain, meter, fundingGate);
 
 // Citrus webhooks: mounted when CONNECTIVITY_PROVIDER=citrus and
 // CITRUS_WEBHOOK_SECRET are set. Incomplete config degrades to "no webhooks"
@@ -66,6 +68,7 @@ if (env.CONNECTIVITY_PROVIDER === "citrus" && env.CITRUS_WEBHOOK_SECRET) {
     const handler = new CitrusWebhookHandler({
       log: WebhookEventLog.open(webhookEventPath(dataDir, network)),
       esimStore,
+      fundingGate,
       logger: (line) => log(line as Record<string, unknown>),
     });
     citrusWebhooks = { handler, secret: env.CITRUS_WEBHOOK_SECRET };
