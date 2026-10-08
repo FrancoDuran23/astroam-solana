@@ -19,6 +19,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import type { WebhookEventLog, WebhookEventRecord } from "../persistence/webhook-event.ts";
 import type { EsimStore } from "../persistence/esim-record.ts";
 import { usdToMicroUsd } from "../providers/connectivity/CitrusProvider.ts";
+import type { ResellerFundingGate } from "./ResellerFundingGate.ts";
 
 const SIGNATURE_RE = /^(?:sha256=)?([0-9a-fA-F]{64})$/;
 
@@ -48,6 +49,7 @@ export type WebhookHandleResult =
 export type CitrusWebhookHandlerOptions = {
   log: WebhookEventLog;
   esimStore: EsimStore;
+  fundingGate?: ResellerFundingGate;
   logger?: (line: unknown) => void;
   now?: () => Date;
 };
@@ -55,12 +57,14 @@ export type CitrusWebhookHandlerOptions = {
 export class CitrusWebhookHandler {
   private readonly log: WebhookEventLog;
   private readonly esimStore: EsimStore;
+  private readonly fundingGate: ResellerFundingGate | undefined;
   private readonly logger: (line: unknown) => void;
   private readonly now: () => Date;
 
   constructor(options: CitrusWebhookHandlerOptions) {
     this.log = options.log;
     this.esimStore = options.esimStore;
+    this.fundingGate = options.fundingGate;
     this.logger = options.logger ?? ((line) => console.log(JSON.stringify(line)));
     this.now = options.now ?? (() => new Date());
   }
@@ -108,6 +112,22 @@ export class CitrusWebhookHandler {
           break;
         case "esim.balance_depleted":
           await this.onBalanceDepleted(record);
+          break;
+        case "balance.auto_refill_failed":
+          if (this.fundingGate) {
+            const reason = typeof record.payload === "object" && record.payload !== null && "reason" in (record.payload as Record<string, unknown>)
+              ? String((record.payload as Record<string, unknown>).reason)
+              : "Citrus auto refill failed";
+            await this.fundingGate.recordAutoRefillFailed(reason);
+            this.logger({ level: "warn", reason: "reseller_refill_failed", gate: "halted", detail: reason });
+          }
+          break;
+        case "balance.auto_refill_succeeded":
+        case "balance.topped_up":
+          if (this.fundingGate) {
+            await this.fundingGate.recordAutoRefillSucceeded();
+            this.logger({ level: "info", reason: "reseller_refill_succeeded", gate: "resumed" });
+          }
           break;
         default:
           this.logger({

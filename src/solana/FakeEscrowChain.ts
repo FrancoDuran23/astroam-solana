@@ -108,4 +108,8 @@ export class FakeEscrowChain implements EscrowChain {
     this.payeeBalance = 0n;
     return { txHash: this.txHash(), amountAtomic };
   }
+
+  async getPayeeBalanceAtomic(): Promise<bigint> {
+    return this.payeeBalance;
+  }
 }

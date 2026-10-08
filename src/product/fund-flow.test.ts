@@ -14,6 +14,7 @@ import { FakeRail } from "../rails/FakeRail.ts";
 import { FakeEscrowChain } from "../solana/FakeEscrowChain.ts";
 import type { MeterSigner } from "../solana/meter-signer.ts";
 import { runFundFlowOnce } from "../jobs/fund-flow.ts";
+import { FakeTreasury } from "../treasury/TreasuryRouter.ts";
 import { decodeBase58, encodeBase58 } from "../shared/solana/base58.ts";
 import { closeVoucherMessage } from "../shared/solana/voucher.ts";
 import type { SignedVoucher } from "../shared/solana/escrow.ts";
@@ -397,16 +398,23 @@ test("the job advances every open trip and sweeps what was collected to the trea
   await useAndSign(one, 1200); // 3 USDC
   await useAndSign(two, 1600); // 4 USDC
 
-  const deps = { service, chain, treasury: { address: TREASURY, minAtomic: 5_000_000n }, now: () => clock };
+  const fakeTreasury = new FakeTreasury({ minTransferAtomic: 5_000_000n, targetBufferAtomic: 0n, keepAtomic: 0n });
+  const deps = {
+    service,
+    treasury: fakeTreasury,
+    getPayeeBalanceAtomic: async () => chain.payeeBalance - fakeTreasury.totalRouted,
+    now: () => clock,
+  };
   const tick = await runFundFlowOnce(deps);
   assert.equal(tick.advanced.length, 2);
   assert.ok(tick.advanced.every((a) => a.claimTxHash));
-  assert.ok(tick.sweepTxHash);
-  assert.equal(chain.swept.get(TREASURY), 7_000_000n);
-  assert.equal(chain.payeeBalance, 0n);
+  assert.ok(tick.treasuryResult?.moved);
+  assert.equal(tick.treasuryResult?.amountAtomic, 7_000_000n);
+  assert.equal(fakeTreasury.totalRouted, 7_000_000n);
 
   // Below the minimum, the next tick sweeps nothing.
-  assert.equal((await runFundFlowOnce(deps)).sweepTxHash, undefined);
+  const tick2 = await runFundFlowOnce(deps);
+  assert.equal(tick2.treasuryResult?.moved, false);
 });
 
 test("without an operator key the meter still signs, and the wallet can submit the close", async () => {

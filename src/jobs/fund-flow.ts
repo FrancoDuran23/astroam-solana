@@ -1,12 +1,15 @@
 // Fund-flow job: runs the automatic fund flow for every open trip, so
 // nobody has to operate it by hand. Each tick it asks the product service to
 // advance each trip (read usage, fund the next eSIM tranche, claim, close
-// when due) and then sweeps collected USDC to the treasury address.
+// when due) and then asks the treasury router to rebalance.
+//
+// fund-flow does NOT know about CCTP, ARQ, Polygon, Bridge.xyz, or any
+// cross-chain detail. It calls `treasury.rebalance()` and that's it.
 //
 // One tick never overlaps the next: a slow pass delays the following one.
 
 import type { AdvanceResult } from "../product/services/MissionProductService.ts";
-import type { EscrowChain } from "../solana/EscrowChain.ts";
+import type { TreasuryRouter, RebalanceResult } from "../treasury/TreasuryRouter.ts";
 
 export const FUND_FLOW_INTERVAL_MS_DEFAULT = 60_000;
 
@@ -15,20 +18,20 @@ export type FundFlowJobDeps = {
     openMissionIds(): Promise<string[]>;
     advance(missionId: string, now?: Date): Promise<AdvanceResult>;
   };
-  chain: EscrowChain;
-  /** Where collected USDC goes (`BRIDGE_LIQUIDATION_ADDRESS`). Without it nothing is swept. */
-  treasury?: { address: string; minAtomic: bigint };
+  /** The treasury router decides what to do with collected USDC. */
+  treasury: TreasuryRouter;
+  /** Provides the current payee USDC balance for the treasury. */
+  getPayeeBalanceAtomic?: () => Promise<bigint>;
   logger?: (line: Record<string, unknown>) => void;
   now?: () => Date;
 };
 
 export type FundFlowTick = {
   advanced: AdvanceResult[];
-  sweepTxHash?: string;
-  sweepError?: string;
+  treasuryResult?: RebalanceResult;
 };
 
-/** One pass over every open trip, then the treasury sweep. Never throws. */
+/** One pass over every open trip, then the treasury rebalance. Never throws. */
 export async function runFundFlowOnce(deps: FundFlowJobDeps): Promise<FundFlowTick> {
   const logger = deps.logger ?? (() => {});
   const tick: FundFlowTick = { advanced: [] };
@@ -43,16 +46,26 @@ export async function runFundFlowOnce(deps: FundFlowJobDeps): Promise<FundFlowTi
     tick.advanced.push(await deps.service.advance(id, deps.now?.()));
   }
 
-  if (deps.treasury) {
+  // Treasury rebalance: the router decides if/how to move collected USDC.
+  if (deps.getPayeeBalanceAtomic) {
     try {
-      const swept = await deps.chain.sweep({ to: deps.treasury.address, minAtomic: deps.treasury.minAtomic });
-      if (swept) {
-        tick.sweepTxHash = swept.txHash;
-        logger({ level: "info", msg: "treasury sweep", txHash: swept.txHash, amountAtomic: swept.amountAtomic.toString(), to: deps.treasury.address });
+      const availableAtomic = await deps.getPayeeBalanceAtomic();
+      const result = await deps.treasury.rebalance({ availableAtomic });
+      tick.treasuryResult = result;
+      if (result.moved) {
+        logger({
+          level: "info",
+          msg: "treasury rebalance",
+          mode: deps.treasury.mode,
+          amountAtomic: result.amountAtomic.toString(),
+          txHash: result.txHash,
+          detail: result.detail,
+        });
       }
     } catch (error) {
-      tick.sweepError = error instanceof Error ? error.message : String(error);
-      logger({ level: "error", msg: "treasury sweep failed", detail: tick.sweepError });
+      const detail = error instanceof Error ? error.message : String(error);
+      tick.treasuryResult = { moved: false, reason: `rebalance_error: ${detail}` };
+      logger({ level: "error", msg: "treasury rebalance failed", detail });
     }
   }
   return tick;

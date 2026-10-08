@@ -5,6 +5,8 @@ node_modules/
 .atl/
 *.log
 data/
+*.jsonl
+*.tmp
 .playwright-mcp/
 aprendizaje/
 cosmos/

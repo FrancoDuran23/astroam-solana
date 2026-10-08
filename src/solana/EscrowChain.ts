@@ -43,6 +43,8 @@ export interface EscrowChain {
   close(input: { escrowId: string; voucher: SignedVoucher; traveler: string }): Promise<string>;
   /** Sends the payee's USDC to `to` when it holds at least `minAtomic`. Null when it does not. */
   sweep(input: { to: string; minAtomic: bigint }): Promise<SweepResult | null>;
+  /** Reads the payee's current USDC Associated Token Account balance on-chain (atomic units). */
+  getPayeeBalanceAtomic(): Promise<bigint>;
 }
 
 const TOKEN_PROGRAM = new PublicKey(SPL_TOKEN_PROGRAM_ID);
@@ -236,6 +238,15 @@ export class SolanaEscrowChain implements EscrowChain {
       }),
     ]);
     return { txHash, amountAtomic: balance };
+  }
+
+  async getPayeeBalanceAtomic(): Promise<bigint> {
+    const source = associatedTokenAddress(this.payee, this.mint);
+    const info = await this.connection.getAccountInfo(source);
+    if (info === null) return 0n;
+    const balance = await this.connection.getTokenAccountBalance(source);
+    if (!balance || !balance.value || !balance.value.amount) return 0n;
+    return BigInt(balance.value.amount);
   }
 }
 

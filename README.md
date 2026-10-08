@@ -83,14 +83,20 @@ The private keys (`id.json` for the deployer, `meter.json` for the meter, and th
 ## Architecture
 
 ```
-wallet (Phantom or Wallet Standard)
-  → deposit USDC into the escrow vault (one transaction)
-meter key (off-chain)
-  → signs the cumulative usage voucher
-backend
-  → checkpoint / claim / close, or the wallet submits them
-program
-  → pays the payee the attested amount, refunds the rest
+Traveler Wallet (Phantom or Wallet Standard)
+  → deposit USDC into Solana Escrow vault (one transaction)
+Meter Key (off-chain)
+  → signs cumulative usage vouchers
+Backend (fund-flow)
+  → checkpoint / claim / close on Solana Escrow
+Solana Escrow
+  → pays payee wallet (Solana USDC)
+Treasury Router (CCTP)
+  → burns Solana USDC via Circle CCTP (IMPLEMENTED IN CODE, NOT YET LIVE-MAINNET TESTED)
+  → Wormhole Executor requests Polygon native Circle USDC mint (IMPLEMENTED IN CODE)
+  → Polygon Treasury EOA -> ARQ Deposit Address (IMPLEMENTED IN CODE)
+  → ARQ Accreditation (MANUAL / EXTERNAL VERIFICATION)
+  → ARQ Global Card -> Citrus Reseller Refill (EXTERNAL CARRIER REFILL)
 ```
 
 The eSIM provider is behind `CONNECTIVITY_PROVIDER`. The default is `fake` (a sample profile in memory). `citrus` exists in the code and stays off unless that env var is set. This demo does not call it.
@@ -132,6 +138,14 @@ solana program set-upgrade-authority <PROGRAM_ID> \
 #   npm run solana:deploy
 # or sweep USDC already collected by the current payee to that vault.
 ```
+
+## Team Testing & Onboarding
+
+For full team onboarding, step-by-step dev/test setup, safe local configuration, manual testing checklists, and technical architecture details, refer to:
+
+👉 **[docs/TEAM_TESTING_GUIDE.md](docs/TEAM_TESTING_GUIDE.md)**
+
+---
 
 ## Try it in 5 minutes
 
