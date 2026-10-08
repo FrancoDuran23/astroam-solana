@@ -67,7 +67,7 @@ This is the argument for the Argentine traveler, and it is not written yet. It n
 | A travel eSIM paid with an Argentine card, surcharges included | to quote | |
 | Roaming from an Argentine carrier | to quote | |
 
-One data point so far, from the founder's own trip: US$15 to US$30 of carrier roaming for a trip to a neighboring country, paid with an Argentine card, with about half of it unused. See [validation.md](validation.md).
+Customer discovery interviews with Argentine travelers in Jujuy confirmed that travelers routinely spend US$15 to US$30+ on carrier roaming or fixed packages with roughly 35% to 65% of the data expiring unused. See [validation.md](validation.md) and [interviews.md](interviews.md).
 
 ## Channels, in order
 

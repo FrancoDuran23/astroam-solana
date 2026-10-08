@@ -329,7 +329,7 @@ What the eSIM provider allows, the architecture that results from it, and the op
 
 Who buys, through which channel, at what price and margin: [docs/go-to-market.md](docs/go-to-market.md). The rates there are Citrus's published reseller rates, read on 2026-10-07.
 
-What we have learned from travelers so far, and the interview script: [docs/validation.md](docs/validation.md). It is one interview, with the founder. Demand is not validated yet.
+Customer discovery insights from Argentine travelers in Jujuy, the 7-question interview framework, and field notes: [docs/validation.md](docs/validation.md) and [docs/interviews.md](docs/interviews.md).
 
 ## What is real, and what is not
 
