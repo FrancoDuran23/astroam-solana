@@ -1,246 +1,256 @@
-# Decisión: Citrus + Bridge para automatizar el flujo de fondos
+# Decision: Citrus + Bridge to automate the fund flow
 
-**Fecha:** 5/10/2026 · **Estado:** el escrow (vales firmados por la clave
-del medidor, checkpoints y claims), el fondeo por tramos, el cobro y el
-cierre automáticos están implementados y con tests; el programa nuevo
-está en devnet (`HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk`). Bridge, la tarjeta de Citrus y la prueba
-con una eSIM real siguen pendientes (§6).
+**Date:** 2026-10-05 · **Status:** the escrow (vouchers signed by the meter
+key, checkpoints and claims), the tranche funding, and the automatic
+collection and close are implemented and tested; the new program is on devnet
+(`HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk`). Bridge, the Citrus card and
+the test with a real eSIM are still pending (§6).
 
-Esta decisión **reemplaza y extiende** la propuesta de la rama
+> **Update 2026-10-07.** Citrus's auto-refill does not work the way §1 and §2
+> assume. It is set on the account, as a threshold and an amount: when the
+> reseller balance drops below the threshold, Citrus charges the saved card.
+> But only real spend triggers it, and funding an eSIM is a transfer, not
+> spend. For AstroAm the only real spend is creating an eSIM ($1.75). So the
+> balance can fall through tranche funding without a charge, and a declined
+> card turns auto-refill off until someone turns it on again by hand. Source:
+> Citrus's [full reference](https://citrusmobile.com/llms-full.txt) and the
+> auto-refill screen of the reseller dashboard. Whether creating an eSIM
+> charges the card when tranches already took the balance below the threshold
+> is not confirmed. The architecture that results, and the options for the
+> money, are in [`fund-flow-architecture.md`](fund-flow-architecture.md).
+
+This decision **replaces and extends** the proposal on the branch
 `docs/automatizar-flujo-de-fondos`
-(`docs/decisiones/automatizar-flujo-de-fondos.md`). Aquella dejó abierto el
-riel de tesorería (USDC cobrado → USD de la cuenta reseller). Esta lo cierra:
-**Bridge** liquida USDC de Solana a la cuenta bancaria de AstroAm, y esa
-cuenta respalda la **tarjeta guardada** con la que Citrus se auto-recarga.
-El escrow sigue con clave de sesión y tramos chicos. No cambia código de la
-app.
+(`docs/decisiones/automatizar-flujo-de-fondos.md`). That one left the treasury
+rail open (collected USDC → the reseller account's USD). This one closes it:
+**Bridge** liquidates Solana USDC to AstroAm's bank account, and that account
+backs the **saved card** Citrus refills itself with. The escrow keeps the
+session key and small tranches. It does not change app code.
 
-Contexto de producto ya decidido: medición con el proveedor
-([`medicion-con-proveedor.md`](medicion-con-proveedor.md)) y el modelo Citrus
-([`../citrus-mobile-brief.md`](../citrus-mobile-brief.md)).
+Product context already decided: metering with the provider
+([`medicion-con-proveedor.md`](medicion-con-proveedor.md)) and the Citrus
+model ([`../citrus-mobile-brief.md`](../citrus-mobile-brief.md)).
 
-## 1. Problema
+## 1. Problem
 
-AstroAm vende datos móviles prepago. El viajero deposita **USDC de Circle**
-en un escrow de Solana. El uso se mide off-chain. Un cierre paga a AstroAm
-lo usado y devuelve el resto al viajero en la misma transacción.
+AstroAm sells prepaid mobile data. The traveler deposits **Circle USDC** into
+a Solana escrow. Usage is measured off-chain. One close pays AstroAm what was
+used and returns the rest to the traveler in the same transaction.
 
-Citrus (proveedor eSIM wholesale) cobra en **dólares vía Stripe**. No acepta
-USDC ni otra crypto. No hay top-up del saldo reseller por API: la recarga es
-por el developer dashboard, con mínimo de ~$10 en la documentación reseller.
-Fondear eSIMs sí es API: `POST /esim/{iccid}/fund`. Los grupos de saldo
-compartido también descuentan del saldo reseller.
+Citrus (wholesale eSIM provider) charges in **dollars through Stripe**. It
+does not accept USDC or any other crypto. There is no API to top up the
+reseller balance: the top-up is in the developer dashboard, with a minimum of
+about $10 in the reseller documentation. Funding eSIMs is an API call:
+`POST /esim/{iccid}/fund`. Shared-balance groups also draw from the reseller
+balance.
 
-Sí existe **auto-recarga con tarjeta guardada** cuando baja el saldo de un
-grupo compartido (`group.balance_low`, auto-refill del account). Los eventos
-de la cuenta reseller incluyen `balance.auto_refill_succeeded` y
-`balance.auto_refill_failed` (ver el brief).
+There is **auto-refill with a saved card** when a shared group's balance
+drops (`group.balance_low`, the account's auto-refill). The reseller
+account's events include `balance.auto_refill_succeeded` and
+`balance.auto_refill_failed` (see the brief).
 
-La eSIM del viajero tiene que seguir **standalone**. Una SIM dentro de un
-grupo no tiene wallet ni consumo individual
-(`wallet_balance_usd` y `total_data_charged_usd` vienen `null`), y el
-producto factura por usuario. El auto-refill es el mecanismo de la cuenta,
-no un motivo para meter al viajero en un grupo. Si la auto-recarga también
-se dispara cuando baja el saldo reseller **sin** un grupo compartido, queda
-**desconocido**: hay que confirmarlo con Citrus (paso (d)).
+The traveler's eSIM has to stay **standalone**. A SIM inside a group has no
+wallet or usage of its own (`wallet_balance_usd` and `total_data_charged_usd`
+come back `null`), and the product bills per user. Auto-refill is the
+account's mechanism, not a reason to put the traveler in a group. Whether
+auto-refill also fires when the reseller balance drops **without** a shared
+group was **unknown** when this was written; see the update above.
 
-Documentación: [citrusmobile.com/developer/docs](https://citrusmobile.com/developer/docs).
-Soporte: support@citrusmobile.com.
+Documentation: [citrusmobile.com/developer/docs](https://citrusmobile.com/developer/docs).
+Support: support@citrusmobile.com.
 
-Hoy el lazo no cierra solo. AstroAm adelanta USD a la eSIM y recién cobra
-USDC al `close`. El USDC cobrado no vuelve solo a dólares, y el dashboard de
-Citrus hay que cargarlo a mano.
+Today the loop does not close by itself. AstroAm advances USD to the eSIM and
+only collects USDC at `close`. The collected USDC does not go back to dollars
+by itself, and the Citrus dashboard has to be loaded by hand.
 
-## 2. Solución recomendada
+## 2. Recommended solution
 
-**Bridge** ([bridge.xyz](https://bridge.xyz)) crea una *liquidation address*
-en **Solana / USDC** que apunta a la cuenta bancaria de AstroAm. Cuando llega
-USDC, Bridge convierte y deposita USD por ACH, wire o FedNow. La creación de
-la address y el ruteo son por API.
+**Bridge** ([bridge.xyz](https://bridge.xyz)) creates a *liquidation address*
+on **Solana / USDC** that points at AstroAm's bank account. When USDC
+arrives, Bridge converts it and deposits USD by ACH, wire or FedNow. Creating
+the address and the routing are done through the API.
 
-- Mínimo publicado: **~$1** en la ruta Solana USDC → USD por ACH
+- Published minimum: **about $1** on the Solana USDC → USD by ACH route
   ([payment routes](https://apidocs.bridge.xyz/get-started/introduction/what-we-support/payment-routes)).
-- Comisión de orquestación **orientativa ~0,25%**, más el costo del rail.
-  ACH es casi cero. El costo exacto de wire y de FedNow, y el plazo de cada
-  riel, quedan **desconocidos** hasta abrir la cuenta. No se fijan otras
-  comisiones en esta decisión.
-- Referencia de la address:
+- Orchestration fee of **roughly 0.25%**, plus the cost of the rail. ACH is
+  close to zero. The exact cost of wire and FedNow, and the time each rail
+  takes, are **unknown** until the account is open. No other fees are fixed
+  in this decision.
+- Reference for the address:
   [Liquidation address](https://apidocs.bridge.xyz/platform/orchestration/liquidation_address/liquidation_address).
 
-Ese banco paga y respalda la **tarjeta guardada** de la auto-recarga de
-Citrus. El loop queda así:
+That bank pays and backs the **saved card** for Citrus's auto-refill. The
+loop looks like this:
 
 ```
-Viajero ─USDC─▶ Escrow Solana
-                    │ depósito (una firma)
+Traveler ─USDC─▶ Solana escrow
+                    │ deposit (one signature)
                     ▼
-              backend provisiona la eSIM
-              y fondea un tramo chico
+              backend provisions the eSIM
+              and funds a small tranche
               POST /esim/{iccid}/fund
                     │
                     ▼
-         saldo reseller de Citrus ──auto-refill──▶ tarjeta guardada
-                    ▲                                    │
-                    │                                    ▼
-              USD en el banco ◀── Bridge liquida USDC
-                    ▲              (treasury / close del escrow)
+         Citrus reseller balance ──auto-refill──▶ saved card
+                    ▲                                 │
+                    │                                 ▼
+              USD in the bank ◀── Bridge liquidates USDC
+                    ▲              (treasury / escrow close)
                     │
-              close: paga lo usado, devuelve el resto
+              close: pays what was used, returns the rest
 ```
 
-1. El viajero deposita USDC en el escrow.
-2. El backend provisiona (o reutiliza) la eSIM y fondea tramos chicos por la
-   API de Citrus, descontando el saldo reseller.
-3. Cuando la cuenta de Citrus baja, la auto-recarga con tarjeta repone el
-   saldo. No hace falta un top-up manual en el dashboard, una vez
-   configuradas la tarjeta y la auto-recarga.
-4. Al cerrar el escrow (y en el barrido de tesorería), el USDC cobrado se
-   manda a la liquidation address. Bridge deposita USD en el banco que
-   respalda esa tarjeta.
+1. The traveler deposits USDC into the escrow.
+2. The backend provisions (or reuses) the eSIM and funds small tranches
+   through the Citrus API, drawing from the reseller balance.
+3. When the Citrus account runs low, the card auto-refill tops the balance
+   up. No manual top-up in the dashboard is needed once the card and the
+   auto-refill are set up.
+4. When the escrow closes (and in the treasury sweep), the collected USDC is
+   sent to the liquidation address. Bridge deposits USD in the bank that
+   backs that card.
 
-El loop de la eSIM queda automático. Lo que sigue siendo manual, hasta los
-pasos de abajo, es abrir Bridge, guardar la tarjeta y prender la
-auto-recarga.
+The eSIM loop becomes automatic. What stays manual, until the steps below,
+is opening Bridge, saving the card and turning auto-refill on.
 
-## 3. Alternativas evaluadas
+## 3. Alternatives considered
 
 **Circle Mint** ([docs](https://developers.circle.com/circle-mint),
-[circle.com](https://www.circle.com)). USDC en Solana → pago al banco por
-wire o RTP, por API. Encaja en el mismo lugar que Bridge. Es más enterprise
-y pide KYB. Bridge es más liviano para una liquidation address permanente.
-Comisiones y plazos de Circle Mint: **desconocidos** acá.
+[circle.com](https://www.circle.com)). USDC on Solana → payout to the bank by
+wire or RTP, through an API. It fits in the same place as Bridge. It is more
+enterprise and asks for KYB. Bridge is lighter for a permanent liquidation
+address. Circle Mint's fees and timing: **unknown** here.
 
-**Rain** ([rain.xyz](https://www.rain.xyz)). Visa virtual fondeada con USDC,
-incluida Solana. Esa tarjeta podría pagar el Stripe de Citrus directo, sin
-el paso banco → tarjeta. Es el camino más limpio de punta a punta y también
-el que más KYC y programa de tarjetas exige. Comisiones: **desconocidas**.
+**Rain** ([rain.xyz](https://www.rain.xyz)). A virtual Visa funded with USDC,
+Solana included. That card could pay Citrus's Stripe directly, without the
+bank → card step. It is the cleanest path end to end, and also the one that
+asks for the most KYC and a card program. Fees: **unknown**.
 
 **Cryptorefills** ([cryptorefills.com](https://www.cryptorefills.com),
-[solana.x402.cryptorefills.com](https://solana.x402.cryptorefills.com)).
-Cobra USDC en Solana por API o x402 y no exige saldo prepago del reseller.
-Al comprar cobra el producto entero: se pierde el pago por MB y el reembolso
-del saldo no usado. Comisiones: **desconocidas**.
+[solana.x402.cryptorefills.com](https://solana.x402.cryptorefills.com)). It
+charges USDC on Solana through an API or x402 and does not require a prepaid
+reseller balance. It charges the whole product at purchase: paying per MB
+and refunding the unused balance are lost. Fees: **unknown**.
 
-**ZeroID** ([zeroid.to/reseller](https://zeroid.to/reseller)). Prepago con
-mínimo ~$300 en SOL o USDT. No es el modelo de pago por MB con devolución de
-lo no usado.
+**ZeroID** ([zeroid.to/reseller](https://zeroid.to/reseller)). Prepaid with a
+minimum of about $300 in SOL or USDT. It is not the pay-per-MB model with a
+refund of what was not used.
 
 ## 4. Escrow (Solana)
 
-El programa (`programs/astroam-escrow`) hoy exige que el `close` lleve la
-firma del viajero. El `refund` a los 7 días (`SOLANA_TIMEOUT_SECONDS`)
-devuelve **todo** el depósito si nadie cerró. AstroAm pierde lo que ya
-fondeó en Citrus. Lo mismo en un viaje de más de 7 días: el viajero puede
-consumir y después reclamar el reembolso completo.
+The program (`programs/astroam-escrow`) required, when this was written, that
+`close` carry the traveler's signature. The `refund` at 7 days
+(`SOLANA_TIMEOUT_SECONDS`) returned the **whole** deposit if nobody closed.
+AstroAm lost what it had already funded in Citrus. The same on a trip longer
+than 7 days: the traveler could use data and then claim the full refund.
 
-**Producto.** Al depositar se registra una **clave de sesión**. El viajero
-firma una sola vez. El backend cierra con esa clave. El tope sigue siendo el
-depósito.
+**Product.** A **session key** is registered at deposit. The traveler signs
+once. The backend closes with that key. The cap is still the deposit.
 
-**Tramos de $2–$3.** Solo se fondea el tramo siguiente en Citrus cuando un
-vale cubre el anterior, y lo fondeado entra en el depósito. Si el viajero
-desaparece, la pérdida máxima de AstroAm es **un tramo** (Citrus corta los
-datos cuando la wallet de la eSIM llega a $0).
+**Tranches of $2–$3.** The next tranche is funded in Citrus only when a
+voucher covers the previous one, and what is funded fits in the deposit. If
+the traveler disappears, the most AstroAm loses is **one tranche** (Citrus
+cuts data when the eSIM's wallet reaches $0).
 
-**Demo.** Firmas periódicas con Phantom, sin cambiar el programa. Alcanza
-para mostrar el ciclo. No escala: cada tramo es un popup y, con la app
-cerrada, no hay firma.
+**Demo.** Periodic signatures with Phantom, without changing the program. It
+is enough to show the cycle. It does not scale: each tranche is a popup and,
+with the app closed, there is no signature.
 
-**Producto = clave de sesión + claims parciales.** Un `claim` transfiere a
-AstroAm lo acumulado hasta ese momento sin cerrar el escrow, así el timeout
-deja de amenazar los viajes largos. El riesgo baja a lo consumido desde el
-último claim (en la práctica, un tramo).
+**Product = session key + partial claims.** A `claim` transfers to AstroAm
+what has accumulated so far without closing the escrow, so the timeout stops
+threatening long trips. The risk drops to what was used since the last claim
+(in practice, one tranche).
 
-**Yield (opción abierta, sin implementar).** Mientras el USDC está en el
-escrow se puede evaluar lending en Solana, por ejemplo **Kamino** o
-**Marginfi**, para generar yield. No se implementa en esta decisión. Queda
-abierto **a quién va el yield** (viajero o plataforma). El riesgo de
-liquidez, el plazo en que los fondos no se pueden retirar y el impacto en el
-`refund` de 7 días están **desconocidos** hasta un diseño aparte (paso (e)).
+**Yield (open option, not implemented).** While the USDC sits in the escrow,
+lending on Solana can be evaluated, for example **Kamino** or **Marginfi**,
+to earn yield. It is not implemented in this decision. **Who gets the yield**
+(traveler or platform) is open. The liquidity risk, how long funds cannot be
+withdrawn, and the effect on the 7-day `refund` are **unknown** until a
+separate design (step 5).
 
-## 5. Decisión
+## 5. Decision
 
-Quedarse con **Citrus + Bridge + auto-recarga con tarjeta + clave de sesión
-con tramos**.
+Stay with **Citrus + Bridge + card auto-refill + session key with
+tranches**.
 
-No cambiar a Cryptorefills ni a ZeroID mientras el diferenciador sea
-reembolsar los MB no usados. Circle Mint y Rain siguen siendo alternativas
-válidas si Bridge no pasa KYB o si conviene pagar Stripe con una Visa
-fondeada en USDC; no son el camino por defecto.
+Do not switch to Cryptorefills or ZeroID while the differentiator is
+refunding the unused megabytes. Circle Mint and Rain remain valid
+alternatives if Bridge does not pass KYB, or if paying Stripe with a
+USDC-funded Visa is better; they are not the default path.
 
-Próximos pasos:
+Next steps:
 
-1. Abrir la cuenta Bridge y crear la liquidation address Solana / USDC hacia
-   el banco de AstroAm.
-2. Configurar en Citrus la tarjeta guardada y la auto-recarga.
-3. Especificar el cambio del programa de escrow: clave de sesión al
-   depositar y claims parciales. El demo puede seguir con firmas Phantom.
-4. Escribir a support@citrusmobile.com y preguntar si el reseller acepta
-   wire, ACH o crypto, y si la auto-recarga del account se dispara sin un grupo
-   compartido (las eSIM de viajero tienen que seguir standalone).
-5. Evaluar yield en Kamino o Marginfi en un diseño aparte, incluido a quién
-   se lo asigna.
+1. Open the Bridge account and create the Solana / USDC liquidation address
+   pointing at AstroAm's bank.
+2. Set up the saved card and auto-refill in Citrus.
+3. Specify the change to the escrow program: session key at deposit and
+   partial claims. The demo can keep using Phantom signatures.
+4. Write to support@citrusmobile.com and ask whether the reseller account
+   accepts wire, ACH or crypto, and whether the account's auto-refill fires
+   without a shared group (traveler eSIMs have to stay standalone).
+5. Evaluate yield on Kamino or Marginfi in a separate design, including who
+   it is assigned to.
 
-## 6. Estado de la implementación
+## 6. Implementation status
 
-Hecho en el código:
+Done in the code:
 
-- **Programa** (`programs/astroam-escrow`): la config (106 bytes) guarda la
-  **clave del medidor** de AstroAm, y es la única que puede firmar un vale
-  acumulativo (ed25519 sobre `(program id, escrow id, monto)`). `deposit`
-  puede registrar una clave de sesión, pero esa clave no firma vales.
-  `checkpoint` graba el último vale sin mover USDC y sin reiniciar el
-  timeout; `claim` cobra la parte del vale no cobrada y deja el escrow
-  abierto; `close` exige un vale entre lo ya atestiguado y el depósito. El
-  timeout corre desde el depósito, el último `topUp` o el último `claim`, y
-  el `refund` paga al payee lo atestiguado no cobrado y devuelve al viajero
-  solo el resto. Los escrows del primer despliegue se siguen pudiendo cerrar
-  y reembolsar.
-- **App**: el viajero firma una sola vez, el depósito. Después de cada
-  lectura de consumo la app pide `POST /api/missions/:id/attest` y, al
-  terminar el viaje, `POST /api/missions/:id/settle`. Ninguna de las dos
-  abre la wallet.
-- **Backend**: firma los vales con `SOLANA_METER_KEYPAIR` y los graba con
-  `checkpoint`; fondea la eSIM un tramo por delante del vale, cobra con
-  `claim`, cierra con `close` y barre lo cobrado a
+- **Program** (`programs/astroam-escrow`): the config (106 bytes) stores
+  AstroAm's **meter key**, and it is the only key that can sign a cumulative
+  voucher (ed25519 over `(program id, escrow id, amount)`). `deposit` can
+  register a session key, but that key does not sign vouchers. `checkpoint`
+  records the latest voucher without moving USDC and without restarting the
+  timeout; `claim` collects the part of the voucher not collected yet and
+  leaves the escrow open; `close` requires a voucher between what was already
+  attested and the deposit. The timeout runs from the deposit, the last
+  `topUp` or the last `claim`, and `refund` pays the payee the attested
+  amount not collected yet and returns only the rest to the traveler.
+  Escrows from the first deployment can still be closed and refunded.
+- **App**: the traveler signs once, the deposit. After each usage reading
+  the app calls `POST /api/missions/:id/attest` and, when the trip ends,
+  `POST /api/missions/:id/settle`. Neither opens the wallet.
+- **Backend**: signs the vouchers with `SOLANA_METER_KEYPAIR` and records
+  them with `checkpoint`; funds the eSIM one tranche ahead of the voucher,
+  collects with `claim`, closes with `close` and sweeps what was collected to
   `BRIDGE_LIQUIDATION_ADDRESS` (`src/solana/meter-signer.ts`,
   `src/product/services/fund-flow.ts`, `src/jobs/fund-flow.ts`,
-  `src/solana/EscrowChain.ts`). Con `SOLANA_OPERATOR_KEYPAIR` el depósito se
-  lee del escrow, no del pedido.
+  `src/solana/EscrowChain.ts`). With `SOLANA_OPERATOR_KEYPAIR` the deposit is
+  read from the escrow, not from the request.
 
-Diferencias con lo escrito arriba:
+Differences from what is written above:
 
-- **Quién firma el vale.** §4 proponía que el backend cerrara con la clave
-  de sesión del viajero. Quedó la clave del medidor de AstroAm: el viajero
-  no puede trabar el cierre ni subdeclarar el consumo negándose a firmar. El
-  tope sigue siendo el depósito, y cada vale queda en el explorer para
-  auditarlo contra el registro de consumo del proveedor.
-- **Tramo.** No se espera a que un vale cubra el tramo anterior entero, porque
-  la wallet de la eSIM llegaría a $0 y Citrus cortaría los datos antes de
-  fondear el siguiente. La regla es que lo fondeado nunca pase de lo que
-  cubren los vales más un tramo. La pérdida máxima sigue siendo un tramo.
-- **Timeout.** Ya no devuelve todo el depósito: paga lo atestiguado en el
-  último `checkpoint` o `claim`. Lo que AstroAm puede perder es lo consumido
-  después del último vale grabado.
+- **Who signs the voucher.** §4 proposed that the backend close with the
+  traveler's session key. It ended up being AstroAm's meter key: the traveler
+  cannot block the close or understate usage by refusing to sign. The cap is
+  still the deposit, and every voucher is on the explorer to audit against
+  the provider's usage record.
+- **Tranche.** It does not wait for a voucher to cover the whole previous
+  tranche, because the eSIM's wallet would reach $0 and Citrus would cut data
+  before the next one was funded. The rule is that what is funded never
+  exceeds what the vouchers cover plus one tranche. The most that can be lost
+  is still one tranche.
+- **Timeout.** It no longer returns the whole deposit: it pays what the last
+  `checkpoint` or `claim` attested. What AstroAm can lose is what was used
+  after the last recorded voucher.
 
-Desplegado: como la config pasó a 106 bytes, el código nuevo es un
-programa nuevo en devnet, `HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk`
-(medidor `3WqaNhVVCCnabBLGA9YWviQHDvo6fTmX1Y9otcmsdB7k`). El primero,
-`8QXPo6yVxZuC3goYzHVLsxVkE1J6BaEqZvfW9e3Do2uq`, no se podía actualizar con
-`--upgrade`. Con FakeProvider se probaron depósito, checkpoint, claim y
-cierre.
+Deployed: since the config grew to 106 bytes, the new code is a new program
+on devnet, `HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk` (meter
+`3WqaNhVVCCnabBLGA9YWviQHDvo6fTmX1Y9otcmsdB7k`). The first one,
+`8QXPo6yVxZuC3goYzHVLsxVkE1J6BaEqZvfW9e3Do2uq`, could not be updated with
+`--upgrade`. Deposit, checkpoint, claim and close were tested with
+FakeProvider.
 
-Pendiente, fuera del código: los pasos 1, 2, 4 y 5 de §5; la prueba del
-`refund` después del timeout; y la prueba con una eSIM real. Los
-webhooks de Citrus (`esim.balance_depleted`, `esim.defunded`) actualizan el
-registro de la eSIM pero no disparan el flujo de fondos: hoy se entera por
-la lectura periódica.
+Pending, outside the code: steps 1, 2, 4 and 5 of §5; the test of `refund`
+after the timeout; and the test with a real eSIM
+([`../real-esim.md`](../real-esim.md)). Citrus's webhooks
+(`esim.balance_depleted`, `esim.defunded`) update the eSIM record but do not
+trigger the fund flow: today it learns from the periodic reading.
 
-## Enlaces
+## Links
 
 - Bridge: https://bridge.xyz
 - Liquidation address: https://apidocs.bridge.xyz/platform/orchestration/liquidation_address/liquidation_address
-- Payment routes (mínimos por riel): https://apidocs.bridge.xyz/get-started/introduction/what-we-support/payment-routes
+- Payment routes (minimums per rail): https://apidocs.bridge.xyz/get-started/introduction/what-we-support/payment-routes
 - Circle Mint: https://developers.circle.com/circle-mint
 - Rain: https://www.rain.xyz
 - Cryptorefills: https://www.cryptorefills.com

@@ -150,8 +150,8 @@ export function useMission() {
     }
   }
 
-  // `target`: la misión recién creada. El estado `mission` de este render
-  // todavía no la tiene cuando se llama justo después de createMission.
+  // `target`: the mission just created. This render's `mission` state does
+  // not have it yet when this is called right after createMission.
   const createPaymentIntent = async (target?: Mission): Promise<PaymentIntentInfo> => {
     const current = target ?? mission
     if (!current) throw new Error('No active mission')

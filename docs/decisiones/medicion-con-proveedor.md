@@ -1,42 +1,42 @@
-# Decisión: medir con el proveedor, sin gateway propio
+# Decision: meter with the provider, without our own gateway
 
-**Fecha:** 24/9/2026 · **Estado:** implementada (migración a Citrus Mobile, PR #9)
+**Date:** 2026-09-24 · **Status:** implemented (migration to Citrus Mobile, PR #9)
 
-**Contexto.** El diseño original (ver [`docs/citrus-mobile-brief.md`](../citrus-mobile-brief.md)
-y [`docs/citrus-mobile-spec.md`](../citrus-mobile-spec.md)), que la
-migración a Citrus reemplazó, medía los bytes en un gateway propio con
-WireGuard: todo el tráfico del viajero pasaba por un servidor nuestro, como una
-VPN. Ese gateway nunca se construyó (`src/meter/demo-meter.ts` lo simula) y
-costaría servidores en varias regiones, latencia extra, una VPN que el viajero
-tiene que activar y tener todo su tráfico pasando por nosotros.
+**Context.** The original design (see [`docs/citrus-mobile-brief.md`](../citrus-mobile-brief.md)
+and [`docs/citrus-mobile-spec.md`](../citrus-mobile-spec.md)), which the
+migration to Citrus replaced, measured bytes in our own WireGuard gateway:
+all of the traveler's traffic went through a server of ours, like a VPN. That
+gateway was never built (`src/meter/demo-meter.ts` simulates it). It would
+cost servers in several regions, extra latency, a VPN the traveler has to
+turn on, and all of their traffic passing through us.
 
-**Decisión.** Somos un revendedor liviano: gestionamos la eSIM por API, pero
-la medición y el corte los hace el proveedor. Nos quedamos con lo que es
-nuestro: el canal de pago on-chain, los vales y el reembolso.
+**Decision.** We are a light reseller: we manage the eSIM through the API,
+and the provider does the metering and the cutoff. We keep what is ours: the
+on-chain payment channel, the vouchers and the refund.
 
-**Consecuencias.**
+**Consequences.**
 
-- El medidor lee el consumo del proveedor en vez de un gateway. Esto
-  reemplaza la regla "facturamos solo con los bytes del gateway" del diseño
-  original.
-- Citrus informa el consumo en **USD cobrados** (`total_data_charged_usd`),
-  no en bytes. Los bytes se calculan como USD cobrados ÷ tarifa del país.
-  Hay que confirmar la precisión con una cuenta real.
-- Hay un desfase de ~10 minutos entre el uso y el vale. El riesgo queda
-  acotado por la billetera prepaga de la eSIM: nunca se usa más de lo que se
-  cargó.
-- Confiamos en los números del proveedor. La reconciliación
-  (`src/jobs/reconciliation.ts`) deja de comparar contra el gateway.
-- La API de Citrus permite 100 pedidos por minuto. Con una lectura cada 10
-  minutos alcanza para ~1.000 eSIMs activas; más allá, hay que usar webhooks
-  (`esim.balance_low`, `esim.balance_depleted`) o grupos.
-- Citrus no tiene sandbox: las pruebas se hacen con plata real (recarga
-  mínima USD 4).
+- The meter reads usage from the provider instead of a gateway. This
+  replaces the original design's rule "we bill only on the gateway's bytes".
+- Citrus reports usage in **USD charged** (`total_data_charged_usd`), not in
+  bytes. Bytes are computed as USD charged ÷ the country's rate. The
+  precision has to be confirmed with a real account.
+- There is a gap of about 10 minutes between usage and the voucher. The risk
+  is bounded by the eSIM's prepaid wallet: it never spends more than was
+  loaded.
+- We trust the provider's numbers. Reconciliation
+  (`src/jobs/reconciliation.ts`) no longer compares against the gateway.
+- The Citrus API allows 100 requests per minute. With one reading every 10
+  minutes that is enough for about 1,000 active eSIMs; beyond that, use
+  webhooks (`esim.balance_low`, `esim.balance_depleted`) or groups.
+- Citrus has no sandbox: tests are run with real money (minimum top-up
+  USD 4).
 
-**Opciones descartadas.**
+**Options ruled out.**
 
-- **Revendedor completo con gateway propio:** lo más caro de construir y
-  operar, y empeora la experiencia del viajero.
-- **Solo sistema de pago** (otro vende la eSIM e integra nuestro canal): lo
-  más simple de operar, pero depende de conseguir socios. Queda como camino
-  B2B a futuro, por ejemplo con wallets que ofrezcan la eSIM dentro de su app.
+- **Full reseller with our own gateway:** the most expensive to build and
+  operate, and it makes the traveler's experience worse.
+- **Payment system only** (someone else sells the eSIM and integrates our
+  channel): the simplest to operate, but it depends on finding partners. It
+  stays as a future B2B path, for example with wallets that offer the eSIM
+  inside their app.

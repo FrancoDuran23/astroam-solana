@@ -1,110 +1,110 @@
-# Spec v2: reemplazar Telnyx por Citrus Mobile (AstroAm)
+# Spec v2: replace Telnyx with Citrus Mobile (AstroAm)
 
-> **Nota:** este documento se escribió cuando la base de AstroAm cobraba en
-> Stellar. Hoy la parte de pagos pasa por el riel de pago de cada cadena
-> (`src/rails/PaymentRail.ts`); todo lo de Citrus sigue vigente.
+> **Note:** this document was written when the AstroAm base charged on
+> Stellar. Today payments go through each chain's payment rail
+> (`src/rails/PaymentRail.ts`); everything about Citrus still applies.
 
-Este documento es la **fuente única** para la migración. Reemplaza al spec v1 (`docs/citrus-mobile-spec.md`) y al plan derivado de él. Si algo choca con el README, prevalece la sección "Decisión: medir con el proveedor, sin gateway propio" del README, salvo donde este documento la precisa (marcado como **[precisión]**).
+This document is the **single source** for the migration. It replaces spec v1 (`docs/citrus-mobile-spec.md`) and the plan derived from it. If something conflicts with the README, the README's section "Decision: meter with the provider, without our own gateway" wins, except where this document makes it more precise (marked **[precision]**).
 
-Referencia técnica de la API de Citrus: `citrus-mobile-brief.md`. Este spec define **qué construir y cuándo está hecho**; el brief explica cómo funciona Citrus.
+Technical reference for the Citrus API: `citrus-mobile-brief.md`. This spec defines **what to build and when it is done**; the brief explains how Citrus works.
 
 ---
 
-## 1. Objetivo
+## 1. Goal
 
-Que toda la conectividad de AstroAm (provisión de eSIM, fondeo de su wallet, lectura de consumo, corte, devolución) funcione sobre **Citrus Mobile**, alimentando el flujo de vales del canal de pago que ya existe, y retirar Telnyx.
+All of AstroAm's connectivity (eSIM provisioning, funding its wallet, reading usage, cutoff, return of balance) runs on **Citrus Mobile**, feeding the voucher flow of the payment channel that already exists, and Telnyx is removed.
 
-## 2. Decisiones vigentes
+## 2. Decisions in force
 
-| # | Decisión | Origen |
+| # | Decision | Origin |
 |---|---|---|
-| D1 | No hay gateway propio. El consumo y el corte los hace Citrus. | README |
-| D2 | El consumo se lee de Citrus (`total_data_charged_usd`) cada ~10 min y alimenta al medidor. | README |
-| D3 | Se reemplaza la interfaz `ConnectivityProvider` por la forma Citrus. No conviven Telnyx y Citrus. | Decidido |
-| D4 | `setDataLimit` se elimina. El tope lo da la wallet prepaga de la eSIM. | Decidido |
-| D5 | Cableado condicional por `CONNECTIVITY_PROVIDER` en `server/main.ts`. Sin la variable, el comportamiento actual no cambia. | Decidido |
-| D6 | Persistencia file-based (JSON/JSONL) con el patrón del repo. Sin SQL. | Decidido |
-| D7 | El agente de vales, sus guardrails y la lógica del canal de pago **no se tocan**. | Restricción |
-| D8 | La eSIM es una por usuario y se reutiliza entre viajes. No se termina al cerrar un viaje. | README |
+| D1 | There is no gateway of our own. Citrus does the metering and the cutoff. | README |
+| D2 | Usage is read from Citrus (`total_data_charged_usd`) about every 10 min and feeds the meter. | README |
+| D3 | The `ConnectivityProvider` interface is replaced by the Citrus shape. Telnyx and Citrus do not coexist. | Decided |
+| D4 | `setDataLimit` is removed. The cap is the eSIM's prepaid wallet. | Decided |
+| D5 | Conditional wiring by `CONNECTIVITY_PROVIDER` in `server/main.ts`. Without the variable, current behavior does not change. | Decided |
+| D6 | File-based persistence (JSON/JSONL) following the repo's pattern. No SQL. | Decided |
+| D7 | The voucher agent, its guardrails and the payment channel logic **are not touched**. | Constraint |
+| D8 | There is one eSIM per user and it is reused across trips. It is not terminated when a trip closes. | README |
 
-## 3. Alcance
+## 3. Scope
 
-**Dentro:** `CitrusProvider`/`CitrusClient`, fábrica y selector, adaptación del medidor y del `PolicyEnforcer`, secuencia de cierre, persistencia de eSIM, webhooks mínimos, config por zod, tests, demos y retiro de Telnyx.
+**In:** `CitrusProvider`/`CitrusClient`, factory and selector, adapting the meter and the `PolicyEnforcer`, close sequence, eSIM persistence, minimal webhooks, zod config, tests, demos and the removal of Telnyx.
 
-**Fuera (no tocar):** `src/agent/*` (incluido `guardrails.ts`), servidor de cobro y canal (`src/server/channel-*`, `close-monitor`), el código de la cadena, el pago de depósito, `settle`. Los grupos de saldo compartido de Citrus (`/groups`) tampoco se usan: una SIM en grupo no tiene wallet ni consumo individual.
+**Out (do not touch):** `src/agent/*` (including `guardrails.ts`), the charging server and channel (`src/server/channel-*`, `close-monitor`), the chain code, the deposit payment, `settle`. Citrus's shared-balance groups (`/groups`) are not used either: a SIM in a group has no wallet or usage of its own.
 
-## 4. Estado actual (implementación completa de la migración)
+## 4. Current state (migration fully implemented)
 
-Estado al commit de la migración: **T1–T8 y T10 están implementados y en verde** (`npm run check`, `npm test`). **T9 (prueba de humo con dinero real, §10) queda pendiente**: requiere cargar el dashboard de Citrus y validar costos (C7, §12). Lo que sigue es el estado del repo en este commit:
+State at the migration commit: **T1–T8 and T10 are implemented and green** (`npm run check`, `npm test`). **T9 (smoke test with real money, §10) is pending**: it requires loading the Citrus dashboard and validating costs (C7, §12). What follows is the state of the repo at that commit:
 
-- `ConnectivityProvider` con la nueva forma Citrus (R2): `provisionEsim | topUp | getUsage → SimUsage{chargedMicroUsd, walletMicroUsd, status, asOf} | suspend | resume | refundUnused | terminate`. `simCardId === iccid`; no hay `purchaseEsim`, `enable`, `disable` ni `setDataLimit`. `FakeProvider` implementa la misma interfaz para tests y demos.
-- `createConnectivityProvider()` (R1) resuelve por `CONNECTIVITY_PROVIDER=fake|citrus` (default `fake`). `CitrusProvider` + `CitrusClient` (axios, base URL configurable, token bucket ≤ 100 req/min, reintentos con `withRetry`) y la taxonomía `CitrusApiError` / `CitrusRateLimitedError` / `CitrusResellerBalanceError` (`src/shared/citrus-errors.ts`).
-- `PolicyEnforcer` (R8): acciones `suspend | noop` con `PRICE_PER_MB_RAW` como dependencia (eliminados `set_data_limit`, el umbral bajo y la lectura directa de `process.env`). `decidePolicy({balanceRaw, costRaw, pricePerMbRaw})` suspende si el saldo llega a 0 o no cubre 1 MB equivalente.
-- `IntegratedMeterService.processCumulative(cumulativeBytes)` (R7) reutiliza `requestVoucher → creditIfSigned → decidePolicy`; `processTraffic` se conserva para los demos. `arePricesAligned` y `pricePerMibFromPerMbRaw` se mantienen (`src/shared/money.ts`).
-- `FundingService` (R5): fondeo del hueco al techo `maxWalletCents` (I2, `src/shared/usage-math.ts`); persiste `pendingFund` antes de `POST /fund` y reconcilia contra el wallet tras timeout/crush; un rechazo definitivo (400/401/404/409) limpia el intento durable y relanza.
-- `SessionCloser` (R9): `refundUnused → esperar esim.defunded (webhook o timeout) → consumo final → último vale → canal cerrado → idle`; `terminate` solo con wallet 0 y sin `defund` pendiente (rechazo local `CitrusTerminateWithBalanceError`).
-- `CitrusWebhookHandler` + `POST /citrus/webhooks` con `express.raw({ type: "application/json" })` (R10): verificación HMAC-SHA256 del **body crudo** con `CITRUS_WEBHOOK_SECRET` contra `X-Citrus-Signature` (hex o `sha256=`), en tiempo constante; 401 si es inválida. Persistencia JSONL antes de responder 200, dedup por `id`, reproceso de no procesados al arrancar. Trata `esim.defunded` y `esim.balance_depleted`; el resto se loguea y responde 200.
-- Persistencia file-based (R11): `src/persistence/esim-record.ts` (mapa `iccid → {userRef, channelId, status, fundedMicroUsd, pendingFund, chargedBaselineMicroUsd, defundPending, createdAt}`) y `src/persistence/webhook-event.ts` (JSONL append-only, dedup durable).
-- Config zod (R12): `CONNECTIVITY_PROVIDER`, `CITRUS_API_KEY`, `CITRUS_BASE_URL`, `CITRUS_WEBHOOK_SECRET`, `CITRUS_REQUEST_TIMEOUT_MS`, `PRICE_PER_MB_RAW` (renombre de `TELNYX_PRICE_PER_MB_USDC`), `MARKUP_BPS=15000`, `USDC_USD_RATE_BPS=10000`, `USAGE_POLL_INTERVAL_MS=600000`, `CITRUS_UNPAID_CAP_BPS=1000`, `CITRUS_DEFUND_STABLE_WINDOW_MS=300000`, `CITRUS_DEFUND_TIMEOUT_MS=3600000`. Con `citrus` se exige `PRICE_PER_MB_RAW` y la superRefine valida `arePricesAligned` con `PRICE_PER_MIB_RAW`. `.env.example` ya tiene la sección Citrus.
-- `ConnectivitySession` (R13): `provider: "citrus"`, `chargedMicroUsd`, `chargedBaselineMicroUsd`, `fundedMicroUsd`; eliminados `carrierBytes` y `simCardId`.
-- Reconciliación (R13): `src/jobs/reconciliation.ts` contrasta `charged − baseline` contra `fondeado − walletUsd` (drift = wallet − esperado); solo diagnóstico, nunca lanza ni afecta la facturación. `mbToBytes` eliminado.
-- `server/main.ts` (D5): webhooks montados solo si `CONNECTIVITY_PROVIDER=citrus` + `CITRUS_WEBHOOK_SECRET` + `PRICE_PER_MB_RAW`, dentro de un try/catch que degrada con log sin impedir `listen` (FC-R1). No se monta el usage-loop ni `FundingService` en el ciclo de vida HTTP: la medición y el fondeo quedan gobernados por las rutas existentes (cierre) y por operación manual — la integración de valor (R5/R6/R9) queda para T9.
-- Demos (R14): las demos corren sin red usando `FakeProvider` y la interfaz nueva.
-- R15: retirados `src/providers/connectivity/TelnyxProvider.ts`, `TelnyxProvider.test.ts` y `docs/telnyx-wireless-integracion.md`; eliminadas las vars `TELNYX_*`; README actualizado (checklist "Falta", sección Proveedor, documentación).
-- Stack: Node ≥22.18 ejecutando `.ts` directo, TypeScript ESM estricto, tests con `node:test`. Comandos: `npm run check`, `npm test` (451 tests en verde).
+- `ConnectivityProvider` with the new Citrus shape (R2): `provisionEsim | topUp | getUsage → SimUsage{chargedMicroUsd, walletMicroUsd, status, asOf} | suspend | resume | refundUnused | terminate`. `simCardId === iccid`; there is no `purchaseEsim`, `enable`, `disable` or `setDataLimit`. `FakeProvider` implements the same interface for tests and demos.
+- `createConnectivityProvider()` (R1) resolves by `CONNECTIVITY_PROVIDER=fake|citrus` (default `fake`). `CitrusProvider` + `CitrusClient` (axios, configurable base URL, token bucket ≤ 100 req/min, retries with `withRetry`) and the `CitrusApiError` / `CitrusRateLimitedError` / `CitrusResellerBalanceError` taxonomy (`src/shared/citrus-errors.ts`).
+- `PolicyEnforcer` (R8): actions `suspend | noop` with `PRICE_PER_MB_RAW` as a dependency (removed: `set_data_limit`, the low threshold and the direct read of `process.env`). `decidePolicy({balanceRaw, costRaw, pricePerMbRaw})` suspends if the balance reaches 0 or does not cover 1 equivalent MB.
+- `IntegratedMeterService.processCumulative(cumulativeBytes)` (R7) reuses `requestVoucher → creditIfSigned → decidePolicy`; `processTraffic` is kept for the demos. `arePricesAligned` and `pricePerMibFromPerMbRaw` stay (`src/shared/money.ts`).
+- `FundingService` (R5): funds the gap up to the ceiling `maxWalletCents` (I2, `src/shared/usage-math.ts`); persists `pendingFund` before `POST /fund` and reconciles against the wallet after a timeout or crash; a definitive rejection (400/401/404/409) clears the durable intent and rethrows.
+- `SessionCloser` (R9): `refundUnused → wait for esim.defunded (webhook or timeout) → final usage → last voucher → channel closed → idle`; `terminate` only with a 0 wallet and no pending `defund` (local rejection `CitrusTerminateWithBalanceError`).
+- `CitrusWebhookHandler` + `POST /citrus/webhooks` with `express.raw({ type: "application/json" })` (R10): HMAC-SHA256 verification of the **raw body** with `CITRUS_WEBHOOK_SECRET` against `X-Citrus-Signature` (hex or `sha256=`), in constant time; 401 if invalid. JSONL persistence before answering 200, dedup by `id`, reprocessing of unprocessed events at startup. Handles `esim.defunded` and `esim.balance_depleted`; the rest is logged and answered 200.
+- File-based persistence (R11): `src/persistence/esim-record.ts` (map `iccid → {userRef, channelId, status, fundedMicroUsd, pendingFund, chargedBaselineMicroUsd, defundPending, createdAt}`) and `src/persistence/webhook-event.ts` (append-only JSONL, durable dedup).
+- zod config (R12): `CONNECTIVITY_PROVIDER`, `CITRUS_API_KEY`, `CITRUS_BASE_URL`, `CITRUS_WEBHOOK_SECRET`, `CITRUS_REQUEST_TIMEOUT_MS`, `PRICE_PER_MB_RAW` (renamed from `TELNYX_PRICE_PER_MB_USDC`), `MARKUP_BPS=15000`, `USDC_USD_RATE_BPS=10000`, `USAGE_POLL_INTERVAL_MS=600000`, `CITRUS_UNPAID_CAP_BPS=1000`, `CITRUS_DEFUND_STABLE_WINDOW_MS=300000`, `CITRUS_DEFUND_TIMEOUT_MS=3600000`. With `citrus`, `PRICE_PER_MB_RAW` is required and the superRefine validates `arePricesAligned` with `PRICE_PER_MIB_RAW`. `.env.example` already has the Citrus section.
+- `ConnectivitySession` (R13): `provider: "citrus"`, `chargedMicroUsd`, `chargedBaselineMicroUsd`, `fundedMicroUsd`; `carrierBytes` and `simCardId` removed.
+- Reconciliation (R13): `src/jobs/reconciliation.ts` compares `charged − baseline` against `funded − walletUsd` (drift = wallet − expected); diagnostic only, it never throws or affects billing. `mbToBytes` removed.
+- `server/main.ts` (D5): webhooks mounted only if `CONNECTIVITY_PROVIDER=citrus` + `CITRUS_WEBHOOK_SECRET` + `PRICE_PER_MB_RAW`, inside a try/catch that degrades with a log without preventing `listen` (FC-R1). The usage loop and `FundingService` are not mounted in the HTTP lifecycle: metering and funding are governed by the existing routes (close) and by manual operation; the value integration (R5/R6/R9) is left for T9.
+- Demos (R14): the demos run without a network using `FakeProvider` and the new interface.
+- R15: removed `src/providers/connectivity/TelnyxProvider.ts`, `TelnyxProvider.test.ts` and `docs/telnyx-wireless-integracion.md`; removed the `TELNYX_*` vars; README updated ("Missing" checklist, Provider section, documentation).
+- Stack: Node ≥22.18 running `.ts` directly, strict ESM TypeScript, tests with `node:test`. Commands: `npm run check`, `npm test` (451 tests green).
 
-## 5. Restricciones de Citrus
+## 5. Citrus constraints
 
-- **C1.** Prepago en USD. Cada eSIM tiene wallet propia; al llegar a $0 la red corta los datos.
-- **C2.** Sin endpoint de bytes. El consumo llega en USD: `total_data_charged_usd` es **acumulado de por vida de la SIM** (no por viaje).
-- **C3.** Retraso de ~10 a 15 min en consumo y saldo. Tras cada `fund`, el reporte se pausa ~15 min.
-- **C4.** `defund` es asíncrono: responde 202, pausa los datos de inmediato y acredita a la cuenta reseller en ~15 min (`esim.defunded`). Mientras dura no se puede `fund` ni `enable` esa SIM. No termina la SIM.
-- **C5.** `wallet_balance_usd` se redondea hacia abajo hasta ~5¢. El monto devuelto por `defund` es el saldo mostrado.
-- **C6.** Rate limit 100 req/min por key. Sin idempotency keys documentadas.
-- **C7.** Sin sandbox (README): las pruebas usan dinero real.
-- **C8.** `terminate` es irreversible y pierde el saldo restante.
+- **C1.** Prepaid in USD. Each eSIM has its own wallet; at $0 the network cuts data.
+- **C2.** No bytes endpoint. Usage arrives in USD: `total_data_charged_usd` is **cumulative over the SIM's lifetime** (not per trip).
+- **C3.** Delay of about 10 to 15 min in usage and balance. After each `fund`, reporting pauses for about 15 min.
+- **C4.** `defund` is asynchronous: it answers 202, pauses data at once and credits the reseller account in about 15 min (`esim.defunded`). While it lasts that SIM cannot be `fund`ed or `enable`d. It does not terminate the SIM.
+- **C5.** `wallet_balance_usd` rounds down by up to about 5¢. The amount `defund` returns is the displayed balance.
+- **C6.** Rate limit of 100 req/min per key. No documented idempotency keys.
+- **C7.** No sandbox (README): tests use real money.
+- **C8.** `terminate` is irreversible and loses the remaining balance.
 
-## 6. Modelo de facturación
+## 6. Billing model
 
-Citrus le cobra al revendedor a tarifa retail −10%. Al viajero se le cobra retail × 1,35. Por lo tanto **el viajero paga 1,5 veces lo que Citrus descuenta de la wallet** (`MARKUP = 1,5`; margen ≈ 33%).
+Citrus charges the reseller the retail rate −10%. The traveler is charged retail × 1.35. Therefore **the traveler pays 1.5 times what Citrus deducts from the wallet** (`MARKUP = 1.5`; margin ≈ 33%).
 
-### 6.1 Definiciones (todo en enteros `bigint`, sin `float`)
+### 6.1 Definitions (all in `bigint` integers, no `float`)
 
-- `chargedMicroUsd`: `total_data_charged_usd` convertido a micro-USD en el borde del proveedor.
-- `chargedBaselineMicroUsd`: lectura de `total_data_charged_usd` al abrir el canal. Consumo del viaje: `chargedSession = charged − baseline` (nunca decreciente).
-- `MARKUP_BPS = 15000`, `USDC_USD_RATE_BPS = 10000` (1 USDC = 1 USD, ver §12).
-- `PRICE_PER_MB_RAW` (renombrado desde `TELNYX_PRICE_PER_MB_USDC`) y `PRICE_PER_MIB_RAW`, alineados como hoy.
+- `chargedMicroUsd`: `total_data_charged_usd` converted to micro-USD at the provider boundary.
+- `chargedBaselineMicroUsd`: the reading of `total_data_charged_usd` when the channel opens. Trip usage: `chargedSession = charged − baseline` (never decreasing).
+- `MARKUP_BPS = 15000`, `USDC_USD_RATE_BPS = 10000` (1 USDC = 1 USD, see §12).
+- `PRICE_PER_MB_RAW` (renamed from `TELNYX_PRICE_PER_MB_USDC`) and `PRICE_PER_MIB_RAW`, aligned as today.
 
-### 6.2 Bytes equivalentes **[precisión]**
+### 6.2 Equivalent bytes **[precision]**
 
-El README dice "bytes = USD cobrados ÷ tarifa del país". Se implementa derivando la conversión del propio precio y del markup, sin tabla por país:
+The README says "bytes = USD charged ÷ the country's rate". It is implemented by deriving the conversion from the price itself and the markup, with no per-country table:
 
 ```
 equivalentBytes = floor( chargedSessionMicroUsd × MARKUP_BPS × 10_000_000
                          / (USDC_USD_RATE_BPS × PRICE_PER_MB_RAW) )
 ```
 
-Con esa fórmula, `equivalentBytes × PRICE_PER_MB_RAW` da exactamente `chargedSession × MARKUP` en USDC, así que **el cobro sigue a lo que Citrus descuenta, sin importar país ni operador**. Los "bytes" son una unidad de cuenta para el agente de vales; solo se parecen a bytes reales en el país cuya tarifa es `PRICE_PER_MB_RAW`. La UI debe mostrar USDC gastados, no MB.
+With that formula, `equivalentBytes × PRICE_PER_MB_RAW` gives exactly `chargedSession × MARKUP` in USDC, so **the charge follows what Citrus deducts, whatever the country or operator**. The "bytes" are a unit of account for the voucher agent; they only resemble real bytes in the country whose rate is `PRICE_PER_MB_RAW`. The UI should show USDC spent, not MB.
 
-Ejemplo (Brasil, `PRICE_PER_MB_RAW = 25000`): consumo de $3,60 → 2 160 000 000 bytes equivalentes → 2160 MB × 25000 = 54 000 000 raw = **5,4 USDC = 3,60 × 1,5**.
+Example (Brazil, `PRICE_PER_MB_RAW = 25000`): usage of $3.60 → 2 160 000 000 equivalent bytes → 2160 MB × 25000 = 54 000 000 raw = **5.4 USDC = 3.60 × 1.5**.
 
-### 6.3 Invariantes
+### 6.3 Invariants
 
-- **I1 (facturación).** El monto acumulado del vale por `equivalentBytes` es ≈ `chargedSession × MARKUP` (± redondeo del `ceil` por MiB, ≤ 0,01%).
-- **I2 (tope de wallet).** La suma fondeada a la eSIM en el viaje no supera:
+- **I1 (billing).** The voucher's cumulative amount for `equivalentBytes` is ≈ `chargedSession × MARKUP` (± the `ceil` rounding per MiB, ≤ 0.01%).
+- **I2 (wallet cap).** The sum funded to the eSIM on the trip does not exceed:
   ```
   maxWalletCents = floor( depositRaw × USDC_USD_RATE_BPS / (100_000 × MARKUP_BPS) )
   ```
-  Ejemplo: depósito de 5 USDC (50 000 000 raw) → 333 centavos ($3,33). Con I1 e I2, el viajero nunca puede consumir más de lo depositado y el canal no se sobregira.
+  Example: a 5 USDC deposit (50 000 000 raw) → 333 cents ($3.33). With I1 and I2, the traveler can never use more than was deposited and the channel is not overdrawn.
 
-## 7. Requisitos
+## 7. Requirements
 
-Cada uno con criterio de aceptación (CA).
+Each one has an acceptance criterion (AC).
 
-**R1. Selector y fábrica.** `createConnectivityProvider()` resuelve por `CONNECTIVITY_PROVIDER` (`fake | citrus`, **default `fake`**). Falla rápido con mensaje accionable si falta config de Citrus.
-- CA: sin la variable, servidor, tests y demos se comportan como hoy; con `citrus` y sin `CITRUS_API_KEY`, el arranque falla nombrando la variable.
+**R1. Selector and factory.** `createConnectivityProvider()` resolves by `CONNECTIVITY_PROVIDER` (`fake | citrus`, **default `fake`**). It fails fast with an actionable message if Citrus config is missing.
+- AC: without the variable, server, tests and demos behave as today; with `citrus` and no `CITRUS_API_KEY`, startup fails naming the variable.
 
-**R2. Interfaz nueva.** Reemplaza a la actual; `setDataLimit` desaparece.
+**R2. New interface.** It replaces the current one; `setDataLimit` goes away.
 ```ts
 type EsimRecord = { iccid: string; lpaString: string; qrCode: string; directInstallUrl: string; status: string };
 type SimUsage   = { chargedMicroUsd: bigint; walletMicroUsd: bigint; status: string; asOf: string };
@@ -118,138 +118,138 @@ interface ConnectivityProvider {
   terminate(iccid: string): Promise<void>;
 }
 ```
-`simCardId === iccid`. Un `FakeProvider` implementa la misma interfaz para tests y demos.
-- CA: `npm run check` en verde; ningún archivo referencia `setDataLimit`, `purchaseEsim` ni `mb` del proveedor.
+`simCardId === iccid`. A `FakeProvider` implements the same interface for tests and demos.
+- AC: `npm run check` green; no file references `setDataLimit`, `purchaseEsim` or the provider's `mb`.
 
-**R3. `CitrusClient`.** Cliente HTTP fino (reutilizar el patrón `HttpClient` de `TelnyxProvider`): base URL configurable, `Authorization: Bearer rsk_…`, limitador de tasa (presupuesto ≤ 80 req/min), reintentos con `withRetry`.
+**R3. `CitrusClient`.** A thin HTTP client (reuse the `HttpClient` pattern from `TelnyxProvider`): configurable base URL, `Authorization: Bearer rsk_…`, rate limiter (budget ≤ 80 req/min), retries with `withRetry`.
 
-| Código | Comportamiento |
+| Code | Behavior |
 |---|---|
-| 429 | Reintentar respetando `Retry-After` |
-| 502, 503 (`NO_ESIMS_AVAILABLE`) | Reintentar con backoff y tope |
-| 400, 401, 404, 409 | No reintentar; error de dominio |
-| 402 `INSUFFICIENT_BALANCE` | `CitrusResellerBalanceError` (alerta operativa, no error del usuario) |
-| Timeout en `fund` | No reintentar a ciegas (ver R5) |
+| 429 | Retry honoring `Retry-After` |
+| 502, 503 (`NO_ESIMS_AVAILABLE`) | Retry with backoff and a cap |
+| 400, 401, 404, 409 | Do not retry; domain error |
+| 402 `INSUFFICIENT_BALANCE` | `CitrusResellerBalanceError` (operational alert, not a user error) |
+| Timeout on `fund` | Do not retry blindly (see R5) |
 
-- CA: prueba por tabla de códigos con respuestas mockeadas; la key nunca aparece en logs.
+- AC: table-driven test of the codes with mocked responses; the key never appears in logs.
 
-**R4. Provisión idempotente.** `provisionEsim(userRef)` llama `POST /esim/provision` con `end_user_reference=userRef`. Si el usuario ya tiene una eSIM con estado ≠ `terminated`, la reutiliza. Un lock por `userRef` (`createChannelMutex` con clave `esim:${userRef}`) evita provisiones duplicadas concurrentes.
-- CA: dos llamadas simultáneas con el mismo `userRef` producen una sola eSIM y un solo cargo de provisión.
+**R4. Idempotent provisioning.** `provisionEsim(userRef)` calls `POST /esim/provision` with `end_user_reference=userRef`. If the user already has an eSIM whose state is not `terminated`, it reuses it. A lock per `userRef` (`createChannelMutex` with key `esim:${userRef}`) prevents duplicate concurrent provisions.
+- AC: two simultaneous calls with the same `userRef` produce one eSIM and one provisioning charge.
 
-**R5. Fondeo de la wallet.** Se fondea **una vez al abrir el canal** y **otra vez si el canal recibe un top-up**, sin fondeo por tramos. El monto es el hueco hasta `maxWalletCents` (I2) menos lo ya fondeado en el viaje, en centavos enteros. Antes de `POST /fund` se persiste `pendingFund`; tras la respuesta se confirma. Tras un timeout o caída, se reconcilia con `GET /esim/{iccid}` comparando `wallet_balance_usd` contra el valor previo, en lugar de reintentar.
-- CA: wallet fondeada × MARKUP ≤ depósito en todos los casos de prueba; un timeout simulado no duplica el fondeo; un crash entre `pendingFund` y la respuesta se resuelve al reiniciar.
+**R5. Funding the wallet.** It is funded **once when the channel opens** and **again if the channel receives a top-up**, with no tranche funding. The amount is the gap up to `maxWalletCents` (I2) minus what was already funded on the trip, in whole cents. Before `POST /fund`, `pendingFund` is persisted; after the response it is confirmed. After a timeout or a crash, it is reconciled with `GET /esim/{iccid}` by comparing `wallet_balance_usd` against the previous value, instead of retrying.
+- AC: wallet funded × MARKUP ≤ deposit in every test case; a simulated timeout does not double the funding; a crash between `pendingFund` and the response is resolved on restart.
 
-**R6. Lectura de consumo.** Un lazo lee `getUsage(iccid)` cada `USAGE_POLL_INTERVAL_MS` (default 600 000; mínimo 60 000; el dato no mejora por debajo de ~5 min). Mantiene `chargedBaselineMicroUsd` (guardado al abrir el canal, ver R9 sobre cuándo leerlo) y calcula `equivalentBytes` con §6.2, con monotonicidad (`max` con la lectura previa).
-- CA: con lecturas mockeadas, `equivalentBytes` coincide con la fórmula del ejemplo de §6.2; una lectura menor a la anterior no reduce el acumulado.
+**R6. Reading usage.** A loop reads `getUsage(iccid)` every `USAGE_POLL_INTERVAL_MS` (default 600 000; minimum 60 000; the data does not get better below about 5 min). It keeps `chargedBaselineMicroUsd` (saved when the channel opens; see R9 on when to read it) and computes `equivalentBytes` with §6.2, monotonically (`max` with the previous reading).
+- AC: with mocked readings, `equivalentBytes` matches the formula in the §6.2 example; a reading lower than the previous one does not reduce the cumulative total.
 
-**R7. Vales.** El medidor recibe `equivalentBytes` acumulados y pide el vale por el flujo actual (`requestVoucher` → `POST /vouchers`). Se agrega un método idempotente en `IntegratedMeterService` (por ejemplo `processCumulative(cumulativeBytes)`) que reutiliza `requestVoucher`, `creditIfSigned` y `decidePolicy`; `processTraffic` se conserva para los demos. **No se modifica el agente ni `PRICE_PER_MIB_RAW`.** `arePricesAligned` se mantiene.
-- CA: un vale por `equivalentBytes` es aceptado por el agente real en un test de integración local; la cuota solo se acredita con vale firmado.
+**R7. Vouchers.** The meter receives cumulative `equivalentBytes` and requests the voucher through the current flow (`requestVoucher` → `POST /vouchers`). An idempotent method is added to `IntegratedMeterService` (for example `processCumulative(cumulativeBytes)`) that reuses `requestVoucher`, `creditIfSigned` and `decidePolicy`; `processTraffic` is kept for the demos. **The agent and `PRICE_PER_MIB_RAW` are not modified.** `arePricesAligned` stays.
+- AC: a voucher for `equivalentBytes` is accepted by the real agent in a local integration test; quota is credited only with a signed voucher.
 
-**R8. Corte.** `PolicyEnforcer` elimina la acción `set_data_limit` y el umbral bajo. Si el saldo restante del canal llega a 0 (o no cubre 1 MB equivalente), o el agente rechaza un vale de forma no reintentable (`channel_exhausted`, `channel_closing`), se llama `suspend()`. **Nunca noop.** Sirve de respaldo: el corte natural lo da la wallet (I2).
-- CA: test de regresión: canal sin saldo → `suspend` invocado; el cost basis usa los mismos `equivalentBytes` que el vale.
+**R8. Cutoff.** `PolicyEnforcer` drops the `set_data_limit` action and the low threshold. If the channel's remaining balance reaches 0 (or does not cover 1 equivalent MB), or the agent rejects a voucher in a non-retryable way (`channel_exhausted`, `channel_closing`), `suspend()` is called. **Never noop.** It is a backstop: the natural cutoff is the wallet (I2).
+- AC: regression test: a channel with no balance → `suspend` called; the cost basis uses the same `equivalentBytes` as the voucher.
 
-**R9. Cierre del viaje.** Secuencia en un componente nuevo (por ejemplo `SessionCloser`) que usa el puerto de cierre existente del servidor, sin modificarlo:
-1. `refundUnused(iccid)` (`defund`): pausa datos, `defund_pending` bloquea `topUp`/`resume`.
-2. Esperar `esim.defunded` (o polling de respaldo con timeout; ver §12).
-3. Consumo final = `charged` leído **después** de la liquidación − `baseline`. Control cruzado: `fondeado − returned_usd` (tolerancia ≤ 5¢ por redondeo, C5). Si difieren más, alerta y se usa el menor.
-4. Pedir el último vale por el consumo final; el servidor cobra y el resto vuelve al viajero (flujo existente).
-5. La eSIM queda `idle` e instalada (D8). `terminate` solo se permite con wallet 0 y sin `defund` pendiente, y no forma parte del flujo normal.
-- CA: en un test con `FakeProvider` con retraso simulado, el último vale refleja el consumo posterior a la liquidación; `terminate` con saldo > 0 es rechazado localmente.
+**R9. Closing the trip.** A sequence in a new component (for example `SessionCloser`) that uses the server's existing close port, without modifying it:
+1. `refundUnused(iccid)` (`defund`): pauses data, `defund_pending` blocks `topUp`/`resume`.
+2. Wait for `esim.defunded` (or backup polling with a timeout; see §12).
+3. Final usage = `charged` read **after** settlement − `baseline`. Cross-check: `funded − returned_usd` (tolerance ≤ 5¢ for rounding, C5). If they differ by more, alert and use the lower.
+4. Request the last voucher for the final usage; the server collects and the rest returns to the traveler (existing flow).
+5. The eSIM stays `idle` and installed (D8). `terminate` is allowed only with a 0 wallet and no pending `defund`, and is not part of the normal flow.
+- AC: in a test with `FakeProvider` and a simulated delay, the last voucher reflects the usage after settlement; `terminate` with a balance above 0 is rejected locally.
 
-El `baseline` del viaje siguiente se lee justo antes del primer `fund`, con la SIM sin tráfico y sin `defund` pendiente. Como `defund` pausa datos y ya liquidó, la lectura no queda atrasada.
+The `baseline` for the next trip is read just before the first `fund`, with the SIM carrying no traffic and no pending `defund`. Since `defund` pauses data and has already settled, the reading is not stale.
 
-**R10. Webhooks (mínimo).** Ruta `POST /citrus/webhooks` con `express.raw({ type: "application/json" })` montada solo si `CONNECTIVITY_PROVIDER=citrus`, sin afectar otras rutas (única modificación en `app.ts` o `main.ts`). Verifica la firma HMAC-SHA256 del **body crudo** con `CITRUS_WEBHOOK_SECRET` contra `X-Citrus-Signature`, en tiempo constante, aceptando hex con o sin prefijo `sha256=` (Citrus no documenta el formato). Firma inválida → 401. **Persistir el evento en el JSONL antes de responder 200**, luego procesar; al arrancar, reprocesar los no marcados `processed_at` y reconstruir el set de dedup por `id`. Eventos tratados: `esim.defunded` y `esim.balance_depleted`; el resto se registra y se responde 200. El resto de los eventos (`esim.activated`, `balance.*`, etc.) queda diferido.
-- CA: un evento con firma válida se procesa una vez aunque llegue dos veces; con firma inválida se rechaza; `POST /webhooks/{id}/test` devuelve 200 contra el servidor levantado.
+**R10. Webhooks (minimal).** Route `POST /citrus/webhooks` with `express.raw({ type: "application/json" })`, mounted only if `CONNECTIVITY_PROVIDER=citrus`, without affecting other routes (the only change in `app.ts` or `main.ts`). It verifies the HMAC-SHA256 signature of the **raw body** with `CITRUS_WEBHOOK_SECRET` against `X-Citrus-Signature`, in constant time, accepting hex with or without the `sha256=` prefix (Citrus does not document the format). Invalid signature → 401. **Persist the event in the JSONL before answering 200**, then process it; at startup, reprocess the ones not marked `processed_at` and rebuild the dedup set by `id`. Events handled: `esim.defunded` and `esim.balance_depleted`; the rest is recorded and answered 200. The other events (`esim.activated`, `balance.*`, etc.) are deferred.
+- AC: an event with a valid signature is processed once even if it arrives twice; with an invalid signature it is rejected; `POST /webhooks/{id}/test` returns 200 against the running server.
 
-**R11. Persistencia file-based.** `src/persistence/esim-record.ts` (mapa `iccid → { userRef, channelId, status, fundedMicroUsd, pendingFund, chargedBaselineMicroUsd, defundPending, createdAt }`) y `src/persistence/webhook-event.ts` (JSONL append-only). Escritura atómica con el patrón de `channel-record.ts`; escrituras del mapa serializadas con `createChannelMutex`.
-- CA: dos escrituras concurrentes al mismo registro no pierden datos; reinicio conserva el dedup.
+**R11. File-based persistence.** `src/persistence/esim-record.ts` (map `iccid → { userRef, channelId, status, fundedMicroUsd, pendingFund, chargedBaselineMicroUsd, defundPending, createdAt }`) and `src/persistence/webhook-event.ts` (append-only JSONL). Atomic writes with the pattern from `channel-record.ts`; writes to the map serialized with `createChannelMutex`.
+- AC: two concurrent writes to the same record lose no data; a restart keeps the dedup.
 
-**R12. Configuración por zod.** En `src/config/env.ts` (`sharedSchema`), reutilizando `rawPositiveIntegerRaw()`:
+**R12. zod configuration.** In `src/config/env.ts` (`sharedSchema`), reusing `rawPositiveIntegerRaw()`:
 
-| Variable | Notas |
+| Variable | Notes |
 |---|---|
 | `CONNECTIVITY_PROVIDER` | `fake \| citrus`, default `fake` |
-| `CITRUS_API_KEY` | prefijo `rsk_`; requerida solo con `citrus` |
+| `CITRUS_API_KEY` | prefix `rsk_`; required only with `citrus` |
 | `CITRUS_BASE_URL` | default `https://citrusmobile.com/api/v2/reseller` |
-| `CITRUS_WEBHOOK_SECRET` | prefijo `whsec_`; requerida solo si se montan webhooks |
-| `PRICE_PER_MB_RAW` | renombre de `TELNYX_PRICE_PER_MB_USDC`; misma semántica y alineación con `PRICE_PER_MIB_RAW` |
+| `CITRUS_WEBHOOK_SECRET` | prefix `whsec_`; required only if webhooks are mounted |
+| `PRICE_PER_MB_RAW` | renamed from `TELNYX_PRICE_PER_MB_USDC`; same meaning and alignment with `PRICE_PER_MIB_RAW` |
 | `MARKUP_BPS` | default 15000 |
 | `USDC_USD_RATE_BPS` | default 10000 |
-| `USAGE_POLL_INTERVAL_MS` | default 600000; mín 60000 |
+| `USAGE_POLL_INTERVAL_MS` | default 600000; min 60000 |
 
-`.env.example` reemplaza la sección Telnyx por Citrus, sin valores reales. Actualizar mensajes y comentarios que nombran a Telnyx.
-- CA: `grep -ri "TELNYX_PRICE_PER_MB_USDC"` vacío; valores inválidos fallan al arrancar nombrando la variable.
+`.env.example` replaces the Telnyx section with Citrus, with no real values. Update messages and comments that name Telnyx.
+- AC: `grep -ri "TELNYX_PRICE_PER_MB_USDC"` is empty; invalid values fail at startup naming the variable.
 
-**R13. Reconciliación reutilizada.** `src/jobs/reconciliation.ts` deja de comparar contra el gateway y pasa a contrastar dos cifras de Citrus: `charged − baseline` contra `fondeado − walletUsd`. Solo diagnóstico: registra la diferencia (tolerancia ≥ 5¢ + lag), nunca lanza ni afecta la facturación. `ConnectivitySession` pasa a `provider: "citrus"`, elimina `carrierBytes` y agrega `chargedMicroUsd`, `chargedBaselineMicroUsd`, `fundedMicroUsd`.
-- CA: con lecturas mockeadas el job loguea la diferencia y no lanza ante errores del proveedor.
+**R13. Reconciliation reused.** `src/jobs/reconciliation.ts` stops comparing against the gateway and compares two Citrus figures instead: `charged − baseline` against `funded − walletUsd`. Diagnostic only: it records the difference (tolerance ≥ 5¢ + lag), and never throws or affects billing. `ConnectivitySession` becomes `provider: "citrus"`, drops `carrierBytes` and adds `chargedMicroUsd`, `chargedBaselineMicroUsd`, `fundedMicroUsd`.
+- AC: with mocked readings the job logs the difference and does not throw on provider errors.
 
-**R14. Tests y demos.** Tests de contrato con fixtures del OpenAPI; tabla de errores; timeout en `fund`; invariantes I1 e I2; `PolicyEnforcer` con `suspend`; secuencia de cierre; webhook duplicado y firma inválida; concurrencia de `provisionEsim` y de escrituras. La app sigue corriendo sin red usando `FakeProvider` y `FakeRail`.
-- CA: `npm run check` y `npm test` en verde.
+**R14. Tests and demos.** Contract tests with fixtures from the OpenAPI; error table; timeout on `fund`; invariants I1 and I2; `PolicyEnforcer` with `suspend`; close sequence; duplicate webhook and invalid signature; concurrency of `provisionEsim` and of writes. The app still runs without a network using `FakeProvider` and `FakeRail`.
+- AC: `npm run check` and `npm test` green.
 
-**R15. Retiro de Telnyx.** Último commit, **solo después de la prueba de humo (T9)**: borrar `TelnyxProvider.ts` y su test, `docs/telnyx-wireless-integracion.md`, variables `TELNYX_*`; actualizar el README (checklist "Falta" y sección Proveedor).
-- CA: `grep -ri telnyx` vacío en código y config (queda en el historial de git).
+**R15. Removing Telnyx.** Last commit, **only after the smoke test (T9)**: delete `TelnyxProvider.ts` and its test, `docs/telnyx-wireless-integracion.md`, the `TELNYX_*` variables; update the README ("Missing" checklist and Provider section).
+- AC: `grep -ri telnyx` is empty in code and config (it stays in git history).
 
-## 8. Diseño
+## 8. Design
 
-**Componentes nuevos:** `providers/connectivity/{CitrusClient,CitrusProvider,FakeProvider,createConnectivityProvider}.ts`, `shared/{token-bucket,citrus-errors}.ts`, `services/{SessionCloser,CitrusWebhookHandler,FundingService}.ts`, `server/routes/citrus-webhooks.ts`, `persistence/{esim-record,webhook-event}.ts`.
+**New components:** `providers/connectivity/{CitrusClient,CitrusProvider,FakeProvider,createConnectivityProvider}.ts`, `shared/{token-bucket,citrus-errors}.ts`, `services/{SessionCloser,CitrusWebhookHandler,FundingService}.ts`, `server/routes/citrus-webhooks.ts`, `persistence/{esim-record,webhook-event}.ts`.
 
-**Modificados (ajuste mínimo):** `ConnectivityProvider.ts`, `ConnectivitySession.ts`, `PolicyEnforcer.ts`, `meter-service.ts`, `reconciliation.ts`, `config/env.ts`, `.env.example`, `server/main.ts` (una sola llamada de registro), `scripts/demo-*.ts`.
+**Modified (minimal change):** `ConnectivityProvider.ts`, `ConnectivitySession.ts`, `PolicyEnforcer.ts`, `meter-service.ts`, `reconciliation.ts`, `config/env.ts`, `.env.example`, `server/main.ts` (a single registration call), `scripts/demo-*.ts`.
 
-**Flujo de un viaje**
+**Flow of a trip**
 
-1. **Apertura.** Depósito USDC → canal de pago abierto → `provisionEsim` (o se reutiliza) → leer `baseline` → `topUp` a `maxWalletCents` (I2) → entregar QR / `directInstallUrl` al viajero.
-2. **Medición (cada ~10 min).** `getUsage` → `chargedSession` → `equivalentBytes` → vale firmado → cuota acreditada → `PolicyEnforcer` evalúa.
-3. **Top-up del canal.** Nuevo hueco hasta el nuevo `maxWalletCents` → `topUp` por la diferencia.
-4. **Cierre.** R9.
+1. **Open.** USDC deposit → payment channel open → `provisionEsim` (or reuse) → read `baseline` → `topUp` to `maxWalletCents` (I2) → hand the QR / `directInstallUrl` to the traveler.
+2. **Metering (about every 10 min).** `getUsage` → `chargedSession` → `equivalentBytes` → signed voucher → quota credited → `PolicyEnforcer` evaluates.
+3. **Channel top-up.** New gap up to the new `maxWalletCents` → `topUp` for the difference.
+4. **Close.** R9.
 
-**Estados internos de la eSIM:** `provisioned → active → (cut) → defund_pending → idle → active …`; `terminated` solo por operación explícita.
+**Internal eSIM states:** `provisioned → active → (cut) → defund_pending → idle → active …`; `terminated` only by an explicit operation.
 
-## 9. Plan de tareas
+## 9. Task plan
 
-| # | Tarea | Depende de | Hecha cuando | Estado |
+| # | Task | Depends on | Done when | Status |
 |---|---|---|---|---|
-| T1 | Interfaz nueva + `FakeProvider`; adaptar consumidores y demos (R2, R14 parcial) | — | `npm run check` y demos en verde | ✓ hecha |
-| T2 | Config zod y selector (R1, R12) | T1 | CA de R1 y R12 | ✓ hecha |
-| T3 | `CitrusClient` y `CitrusProvider` (R3, R4) | T1 | Tests de contrato y errores | ✓ hecha |
-| T4 | Persistencia `esim` y `webhook-event` (R11) | T1 | CA de R11 | ✓ hecha |
-| T5 | Bytes equivalentes, `processCumulative`, lazo de lectura (R6, R7) | T1, T4 | CA de R6, R7 | ✓ hecha (R6 a validar en T9) |
-| T6 | `FundingService` (R5) y `PolicyEnforcer` sin `set_data_limit` (R8) | T3, T4, T5 | CA de R5, R8 | ✓ hecha |
-| T7 | `SessionCloser` (R9) y reconciliación reutilizada (R13) | T5, T6 | CA de R9, R13 | ✓ hecha |
-| T8 | Webhooks mínimos (R10) | T4, T7 | CA de R10 | ✓ hecha |
-| T9 | Prueba de humo real (§10) | T2 a T8 | Ciclo completo ejecutado y documentado | **pendiente** (requiere dinero real, C7) |
-| T10 | Retirar Telnyx y actualizar docs (R15) | T9 | CA de R15 | ✓ hecha |
+| T1 | New interface + `FakeProvider`; adapt consumers and demos (R2, part of R14) | — | `npm run check` and demos green | ✓ done |
+| T2 | zod config and selector (R1, R12) | T1 | AC of R1 and R12 | ✓ done |
+| T3 | `CitrusClient` and `CitrusProvider` (R3, R4) | T1 | Contract and error tests | ✓ done |
+| T4 | `esim` and `webhook-event` persistence (R11) | T1 | AC of R11 | ✓ done |
+| T5 | Equivalent bytes, `processCumulative`, reading loop (R6, R7) | T1, T4 | AC of R6, R7 | ✓ done (R6 to validate in T9) |
+| T6 | `FundingService` (R5) and `PolicyEnforcer` without `set_data_limit` (R8) | T3, T4, T5 | AC of R5, R8 | ✓ done |
+| T7 | `SessionCloser` (R9) and reconciliation reused (R13) | T5, T6 | AC of R9, R13 | ✓ done |
+| T8 | Minimal webhooks (R10) | T4, T7 | AC of R10 | ✓ done |
+| T9 | Real smoke test (§10) | T2 to T8 | Full cycle run and documented | **pending** (needs real money, C7) |
+| T10 | Remove Telnyx and update docs (R15) | T9 | AC of R15 | ✓ done |
 
-## 10. Prueba de humo (T9)
+## 10. Smoke test (T9)
 
-Con dinero real (C7). Antes de correrla, confirmar en el dashboard el costo de la eSIM y la recarga mínima (ver §12). Ciclo: 1 eSIM provisionada, fondeo de $9, instalación, consumo real, `defund`, `esim.defunded`, comparación de `charged − baseline` contra `fondeado − returned`. Debe validar la precisión de `total_data_charged_usd`, el formato de la firma del webhook y la detección del fin del `defund`.
+With real money (C7). Before running it, confirm in the dashboard the cost of the eSIM and the minimum top-up (see §12). Cycle: 1 eSIM provisioned, funding of $9, installation, real usage, `defund`, `esim.defunded`, comparison of `charged − baseline` against `funded − returned`. It has to validate the precision of `total_data_charged_usd`, the format of the webhook signature and how the end of the `defund` is detected.
 
-## 11. Notas de implementación
+## 11. Implementation notes
 
-- Tratar `wallet_balance_usd` como "al menos" ese saldo (C5). Montos de fondeo en centavos enteros.
-- Convertir los USD de la API a micro-USD `bigint` en un solo lugar (el borde de `CitrusProvider`); nada de `float` aguas adentro.
-- La key y el secret nunca se loguean; enmascarar `Authorization`.
-- Un solo canal activo por eSIM a la vez.
-- Toda decisión que dependa de consumo o saldo tolera datos de hasta ~15 min de antigüedad.
+- Treat `wallet_balance_usd` as "at least" that balance (C5). Funding amounts in whole cents.
+- Convert the API's USD to `bigint` micro-USD in one place (the `CitrusProvider` boundary); no `float` further in.
+- The key and the secret are never logged; mask `Authorization`.
+- One active channel per eSIM at a time.
+- Every decision that depends on usage or balance tolerates data up to about 15 min old.
 
-## 12. Preguntas abiertas y riesgos
+## 12. Open questions and risks
 
-1. **Costos reales.** El README dice "primera eSIM gratis, USD 2,45 después" y "recarga mínima USD 4"; la documentación de la API del revendedor dice **$1,75 por eSIM** y **$10 de recarga mínima**. Confirmar en el dashboard antes de presupuestar T9.
-2. **Precisión de `total_data_charged_usd`** (el README ya pide confirmarla): centavos, o hasta el KB. Se valida en T9.
-3. **Fin del `defund` sin webhook.** La API no documenta un indicador de `defund` pendiente en `GET /esim/{iccid}`. Definir el polling de respaldo (¿wallet en 0 y consumo estable?) y su timeout en T9.
-4. **Formato de la firma del webhook** (hex, base64 o con prefijo). Cubierto por la comparación tolerante de R10; confirmar con `POST /webhooks/{id}/test`.
-5. **`USDC_USD_RATE_BPS`.** Se asume 1 USDC = 1 USD. Confirmar o cotizar.
-6. **"Bytes equivalentes" vs "tarifa del país" del README** (§6.2): la fórmula es equivalente en cobro y evita mantener tarifas por país. Confirmar con el equipo que no se necesita mostrar MB reales al viajero.
-7. **Puerto de cierre.** **Resuelto:** el `SessionCloser` (R9) usa el flujo de cierre existente del servidor de cobro (vale final → cierre del canal) sin modificar su puerto; orquesta `refundUnused` + webhook + último vale desde el servicio de sesiones.
-8. **`NetworkDataMeter`.** **Resuelto:** el simulador de gateway (`demo-meter.ts`) queda solo como base de `processTraffic` para los demos; en modo Citrus el consumo real llega por `getUsage` (§6.2) y la política es R8 (suspend/noop).
-9. **Riesgo de retraso (C3).** Mitigado por la wallet prepaga (I2), pero un viajero puede consumir hasta ~15 min de datos antes de que el medidor lo vea; por eso el tope de wallet es la protección primaria y el `PolicyEnforcer` solo respaldo.
-10. **Proveedor nuevo.** Sin SLA visible; sin sandbox. Mantener `FakeProvider` para desarrollo y demos.
+1. **Real costs.** The README says "first eSIM free, USD 2.45 after" and "minimum top-up USD 4"; the reseller API documentation says **$1.75 per eSIM** and **$10 minimum top-up**. Confirm in the dashboard before budgeting T9.
+2. **Precision of `total_data_charged_usd`** (the README already asks to confirm it): cents, or down to the KB. Validated in T9.
+3. **End of the `defund` without a webhook.** The API documents no indicator of a pending `defund` in `GET /esim/{iccid}`. Define the backup polling (wallet at 0 and stable usage?) and its timeout in T9.
+4. **Format of the webhook signature** (hex, base64 or with a prefix). Covered by R10's tolerant comparison; confirm with `POST /webhooks/{id}/test`.
+5. **`USDC_USD_RATE_BPS`.** 1 USDC = 1 USD is assumed. Confirm or quote.
+6. **"Equivalent bytes" vs the README's "country rate"** (§6.2): the formula is equivalent in what it charges and avoids maintaining per-country rates. Confirm with the team that real MB do not need to be shown to the traveler.
+7. **Close port.** **Resolved:** the `SessionCloser` (R9) uses the charging server's existing close flow (final voucher → channel close) without modifying its port; it orchestrates `refundUnused` + webhook + last voucher from the sessions service.
+8. **`NetworkDataMeter`.** **Resolved:** the gateway simulator (`demo-meter.ts`) stays only as the base of `processTraffic` for the demos; in Citrus mode real usage arrives through `getUsage` (§6.2) and the policy is R8 (suspend/noop).
+9. **Delay risk (C3).** Mitigated by the prepaid wallet (I2), but a traveler can use up to about 15 min of data before the meter sees it; that is why the wallet cap is the primary protection and the `PolicyEnforcer` only a backstop.
+10. **New provider.** No visible SLA; no sandbox. Keep `FakeProvider` for development and demos.
 
-## 13. Referencias
+## 13. References
 
-- Brief técnico: `citrus-mobile-brief.md`
+- Technical brief: `citrus-mobile-brief.md`
 - OpenAPI: https://citrusmobile.com/openapi-reseller.yaml
-- Docs en Markdown: https://citrusmobile.com/developer/docs/markdown
-- Recetas: https://citrusmobile.com/developer/guides
-- MCP oficial (tarifas y docs sin key): `https://citrusmobile.com/api/mcp`
-- Tarifas públicas: https://citrusmobile.com/rates
-- Soporte: support@citrusmobile.com
+- Docs in Markdown: https://citrusmobile.com/developer/docs/markdown
+- Recipes: https://citrusmobile.com/developer/guides
+- Official MCP (rates and docs without a key): `https://citrusmobile.com/api/mcp`
+- Public rates: https://citrusmobile.com/rates
+- Support: support@citrusmobile.com

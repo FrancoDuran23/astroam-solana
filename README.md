@@ -28,6 +28,29 @@ Anyone can send checkpoint, claim, close, and refund. The meter signature sets t
 
 ## Why Solana
 
+The escrow is the product, and four things in it depend on Solana. It is not a payment rail that another chain could replace.
+
+1. **The chain checks the voucher, in the same transaction that pays.** `checkpoint`, `claim` and `close` each follow an ed25519 verification of the meter's signature. Solana's ed25519 precompile checks the signature and the program reads the signed message and the signer from the instructions sysvar. No oracle contract and no off-chain relayer sits in between. A checkpoint used 4,734 compute units on devnet.
+2. **A vault the program owns, holding Circle's own USDC.** The traveler's USDC sits in an SPL Token account owned by that trip's escrow PDA. Paying AstroAm and refunding the traveler are two token transfers inside one `close`: both happen or neither does. The USDC is native, issued by Circle on Solana, not a bridged copy.
+3. **Fees far smaller than what is being sold.** Usage is collected in tranches of a few dollars, so every trip is several transactions. The devnet run below (one deposit, three checkpoints, two claims, one close) paid **65,000 lamports in fees in total, 0.000065 SOL**. That is under one US cent at any SOL price below $150.
+4. **The refund lands while the traveler is still looking at the screen.** Those seven transactions went from deposit to close in 77 seconds, with the steps run by hand.
+
+| Transaction (2026-10-07 devnet run) | Fee (lamports) | Compute units |
+|---|---|---|
+| Deposit | 5,000 | 19,977 |
+| Checkpoint × 3 | 10,000 each | 4,733 to 4,734 |
+| Claim × 2 | 10,000 each | 13,508 and 22,587 |
+| Close | 10,000 | 18,128 |
+| **Total** | **65,000** | |
+
+Figures read from `getTransaction` on `https://api.devnet.solana.com` for the signatures listed under [Live on devnet](#live-on-devnet).
+
+One cost is not solved yet. The deposit also took 0.0028 SOL from the traveler's wallet to create the escrow and vault accounts, and the program does not close those accounts at `close`, so that amount stays locked. Returning it at close is on the [roadmap](#roadmap).
+
+`src/rails/PaymentRail.ts` is what is left of the app's first build on Stellar. It only keeps the demo's in-memory metering. The Solana escrow does not go through it: the program is in `programs/astroam-escrow`, the backend's transactions in `src/solana`, and the wallet's in `frontend/src/chain`.
+
+### Why devnet
+
 Colosseum reviews products on Solana devnet. That is the cluster Phantom can point at, and the one with a public faucet and Circle's devnet USDC. A local validator is invisible to a judge's wallet. Solana testnet is a different cluster and does not have this USDC mint. Mainnet is out of scope.
 
 USDC mint (Circle, 6 decimals, SPL Token): `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU`
@@ -117,6 +140,14 @@ Each traveler has their own escrow PDA, derived from that trip's escrow id, and 
 Usage is metered off-chain, so a meter that over-reports could charge more than the traveler used, up to the deposit. That is bounded by the cap above, and it is auditable: every checkpoint and close is a transaction whose voucher message is `AstroAmEscrow:v1:close || program id || escrow id || amount`, signed by the published meter key. The carrier's usage record for the same ICCID is the other side of that check. A disagreement is visible on the explorer and in the provider's usage log; it does not require trusting a traveler signature.
 
 The program upgrade authority is still the deployer key (`9NMAvdKGJibTUFW4mWRfVd4sZRpLNo3fQCQMqdrXXV89` on the current devnet deployment). The payee that receives used USDC is that same key. Both are planned to move to a 2-of-3 Squads multisig so no single laptop can upgrade the program or spend the treasury. The USDC sitting in a traveler's vault is not part of that treasury: the multisig cannot transfer it either.
+
+**Why it is still the deployer key.** Three reasons, none of them a design choice:
+
+- The program was redeployed on 2026-10-07 to store the meter key. A redeploy and its `initialize` are signed by one keypair, and the team has not created the Squads multisig on devnet yet.
+- The payee is written into the program config at `initialize` and there is no instruction to change it. Moving the payee to a multisig therefore means deploying the program again with the multisig as payee, not sending one transaction.
+- The backend's treasury sweep signs with the payee key. A multisig payee cannot sign from a server, so the sweep has to become a proposal the signers approve.
+
+What that key can and cannot do today: it can upgrade the program and it receives the USDC that vouchers release. It cannot take USDC out of a traveler's vault, because the program only pays the configured payee the amount a meter voucher states. An upgrade could change that rule, which is the reason to move the upgrade authority first.
 
 After the Squads vault exists:
 
@@ -292,6 +323,14 @@ Without those variables the API cannot sign a voucher. The old program still rej
 
 Still not in the code: open the Bridge account and create the liquidation address, set the card and auto-reload on the eSIM provider, and try the loop with a real eSIM. The meter-key program is already on devnet (above). If `solana program deploy` says the program account is too small, `solana program extend <program id> <bytes>` grows it.
 
+What the eSIM provider allows, the architecture that results from it, and the options for the collected money: [docs/decisiones/fund-flow-architecture.md](docs/decisiones/fund-flow-architecture.md).
+
+## Go-to-market and validation
+
+Who buys, through which channel, at what price and margin: [docs/go-to-market.md](docs/go-to-market.md). The rates there are Citrus's published reseller rates, read on 2026-10-07.
+
+What we have learned from travelers so far, and the interview script: [docs/validation.md](docs/validation.md). It is one interview, with the founder. Demand is not validated yet.
+
 ## What is real, and what is not
 
 | Piece | Status |
@@ -306,10 +345,11 @@ Still not in the code: open the Bridge account and create the liquidation addres
 
 ## Roadmap
 
-1. Move the upgrade authority and the payee to a 2-of-3 Squads multisig.
-2. Connect a real eSIM provider (the Citrus adapter is the candidate) and replace the sample profile.
-3. Legal review of the draft terms, including the refund rule and the Argentine right of withdrawal (botón de arrepentimiento), then publish a contact for that request.
-4. Bridge liquidation address for collected USDC, only after the provider account exists. See `docs/decisiones/automatizar-flujo-fondos-citrus-bridge.md`.
+1. **Issue a real eSIM from the flow and close 10 sessions with travelers on a real trip.** Owner: Joel. The Citrus reseller account, API key and balance exist. What is missing is in [docs/real-esim.md](docs/real-esim.md).
+2. Move the upgrade authority and the payee to a 2-of-3 Squads multisig. Owner: Ignacio, who holds the deployer key.
+3. Return the escrow and vault rent to the traveler at `close`.
+4. Legal review of the draft terms, including the refund rule and the Argentine right of withdrawal (botón de arrepentimiento), then publish a contact for that request.
+5. Bridge liquidation address for collected USDC, only after the provider account exists. See `docs/decisiones/automatizar-flujo-fondos-citrus-bridge.md`.
 
 ## Checks
 
