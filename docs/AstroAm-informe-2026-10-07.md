@@ -10,7 +10,7 @@ La devolución de Superteam Argentina del 5 de octubre puso el proyecto en **46 
 
 | Ya estaba resuelto en main | Lo que hice hoy (rama `feat/submission-gaps`, sin commit) | Lo que solo puede hacer el equipo |
 |---|---|---|
-| • El cierre del escrow: el medidor firma el vale y el viajero no puede trabarlo.<br>• El timeout paga lo atestado.<br>• Programa redesplegado en devnet, con una corrida real enlazada. | • README en inglés, con roles y modelo de confianza.<br>• Términos en borrador en `/terms`.<br>• "Why Solana" con las comisiones medidas.<br>• Por qué sigue la clave del deployer.<br>• Toda la carpeta `docs/` en inglés.<br>• Go-to-market con los costos reales de Citrus.<br>• La entrevista (una, la tuya) y el guion para las próximas.<br>• Guía para emitir la eSIM real.<br>• Un error que impedía usar el front desplegado. | • Grabar y publicar el pitch y la demo.<br>• Emitir la eSIM real (Joel).<br>• Desplegar la API y el front.<br>• Tres a cinco entrevistas reales.<br>• Contactar un canal.<br>• Registrarse en Colosseum y enviar en Earn.<br>• Escribirle a Citrus. |
+| • El cierre del escrow: el medidor firma el vale y el viajero no puede trabarlo.<br>• El timeout paga lo atestado.<br>• Programa redesplegado en devnet, con una corrida real enlazada. | • README en inglés, con roles y modelo de confianza.<br>• Términos en borrador en `/terms`.<br>• "Why Solana" con las comisiones medidas.<br>• Por qué sigue la clave del deployer.<br>• Toda la carpeta `docs/` en inglés.<br>• Go-to-market con los costos reales de Citrus.<br>• Validación: investigación de escritorio y comparación de precios. Las entrevistas están planificadas y no se hicieron.<br>• Guía para emitir la eSIM real.<br>• Un error que impedía usar el front desplegado. | • Grabar y publicar el pitch y la demo.<br>• Emitir la eSIM real (Joel).<br>• Desplegar la API y el front.<br>• Tres a cinco entrevistas reales.<br>• Contactar un canal.<br>• Registrarse en Colosseum y enviar en Earn.<br>• Escribirle a Citrus. |
 
 > **Verificación de hoy:** pasan los 226 tests de TypeScript y los 22 del programa en Rust, y los dos chequeos de tipos.
 
@@ -83,7 +83,7 @@ Las dos claves del programa que está en `.env.example` las tiene Ignacio. Si no
 | 5 | **P0 · Equipo en Colosseum** | No lo veo | Los cuatro registrados con país Argentina y la URL del proyecto en el README. |
 | 6 | **P1 · Corregir el cierre del escrow** | Hecho | Nada. |
 | 7 | **P1 · Demo con transacciones visibles** | Parcial | La corrida real está enlazada en el README. Falta el video que abra esas firmas en el explorer. |
-| 8 | **P1 · Go-to-market con entrevistas** | Parcial | El plan está escrito. Hay una entrevista, la tuya. Faltan tres a cinco con otros viajeros y contactar un canal. |
+| 8 | **P1 · Go-to-market con entrevistas** | Parcial | El plan está escrito. No hay entrevistas: están planificadas y no se hicieron. Falta hacerlas y contactar un canal. |
 | 9 | **P1 · Ángulo argentino con números** | Parcial | Está nuestro precio real (2,48 USDC por giga en Brasil). Falta cotizar lo mismo con tarjeta argentina. |
 | 10 | **P1 · Front desplegado** | Parcial | La configuración está lista y arreglé el error que lo rompía. Falta desplegar con las cuentas del equipo. |
 | 11 | **P1 · Rol de cada integrante** | Casi | Agregar la experiencia previa de cada uno y llevarlo a la aplicación y al pitch. |
@@ -198,31 +198,11 @@ Un primer viaje corto pierde plata a este precio. Hay dos salidas: **cobrar un c
 
 ---
 
-## 8. Validación: la entrevista
+## 8. Validación
 
-No inventé entrevistas. La devolución ya marcó como falta grave presentar algo simulado como real, y recomienda decir "todavía no validamos demanda" si no hay entrevistas. Lo que hay es **una entrevista real, la que te hice hoy**, anotada como lo que es: el fundador contando su propio viaje.
+La validación hasta ahora es investigación de escritorio y la comparación de precios. Las entrevistas con clientes están planificadas y no se hicieron. No hay usuarios que paguen, y la demanda no está validada.
 
-| Pregunta | Tu respuesta |
-|---|---|
-| ¿A dónde fue tu último viaje al exterior? | Un país limítrofe. |
-| ¿Cómo conseguiste datos móviles? | Roaming de mi operadora. |
-| ¿Cuánto pagaste en total? | Entre US$15 y US$30. |
-| ¿Cómo lo pagaste? | Con tarjeta argentina. |
-| ¿Cuánto de lo que pagaste usaste? | Más o menos la mitad. |
-| ¿Qué te molestó más? | Los recargos de la tarjeta, perder lo no usado y que fue complicado de activar. |
-| ¿Tenés stablecoins y las usarías para esto? | Sí, y sí. |
-
-> **Lo que sugiere, para comprobar con otra gente:** pagaste por el doble de datos de los que usaste, y el recargo de la tarjeta se siente como un costo aparte.
-
-### Guion para las próximas (diez minutos cada una)
-
-1. ¿A dónde fue tu último viaje al exterior y cuánto duró?
-2. ¿Cómo conseguiste datos ahí? ¿Por qué de esa forma?
-3. ¿Cuánto pagaste y cómo? ¿La tarjeta sumó algo?
-4. ¿Usaste todo lo que pagaste? ¿Qué pasó con el resto?
-5. ¿Tenés USDC u otra stablecoin? ¿Dónde? ¿Alguna vez pagaste algo con eso?
-
-*Al final, mostrar la app un minuto y preguntar una sola cosa: **¿qué te frenaría de usar esto en tu próximo viaje?** Anotar fecha, perfil y una frase textual de cada uno en `docs/validation.md`.*
+La comparación de precios está en `docs/go-to-market.md` y en el README. No sale de entrevistas. Cuando haya una entrevista de verdad, anotar fecha, perfil y una frase textual en `docs/validation.md`. Hasta entonces el repo no cita entrevistas.
 
 ---
 
@@ -264,7 +244,7 @@ Está todo en la rama local `feat/submission-gaps`, sin commit ni push.
 > *"Travel data you pay in USDC: you deposit once, AstroAm charges only the megabytes you used, and the rest returns to your wallet by itself."*
 
 ### Go-to-market, para la aplicación
-> *"We start with Argentine travelers who already hold USDC, reached through the crypto communities where the team is active (jujuy.dev and Superteam Argentina), then Argentine wallets and exchanges on a referral fee. The traveler pays the carrier's cost times 1.5: 2.48 USDC per GB in Brazil at Citrus Mobile's published reseller rate. We have one interview so far, with our founder, and no paying user; demand is not validated yet. The next experiment is ten sessions with real travelers on a real trip."*
+> *"We start with Argentine travelers who already hold USDC, reached through the crypto communities where the team is active (jujuy.dev and Superteam Argentina), then Argentine wallets and exchanges on a referral fee. The traveler pays the carrier's cost times 1.5: 2.48 USDC per GB in Brazil at Citrus Mobile's published reseller rate. Validation so far is desk research and price comparison only. Customer interviews are planned and not done. There is no paying user, and demand is not validated yet. The next experiment is ten sessions with real travelers on a real trip."*
 
 ### Qué es real y qué no, para poner junto al video
 > *"Real: the escrow program on Solana devnet and every transaction shown. Sample: the eSIM profile, which no carrier issued."*  
@@ -275,10 +255,10 @@ Está todo en la rama local `feat/submission-gaps`, sin commit ni push.
 
 | Tiempo | Sección | Texto |
 |---|---|---|
-| **0:00–0:15** | **Problem** | An Argentine traveler buys mobile data with a card, pays the surcharges, and loses whatever he did not use. On my last trip I paid between fifteen and thirty dollars for roaming and used about half. |
+| **0:00–0:15** | **Problem** | An Argentine traveler buys mobile data with a card, pays the surcharges, and loses whatever he did not use. |
 | **0:15–0:30** | **Insight** | Pay-as-you-go eSIMs keep your credit inside their app. eSIMs paid with crypto sell closed packages with no refund. Nobody returns the unused part to your own wallet. |
 | **0:30–1:00** | **Product** | AstroAm: you deposit USDC once into an escrow on Solana. Usage is measured off-chain and our meter signs a running total. One close pays what you used and returns the rest, and the traveler cannot block it. On devnet: 2.5 USDC in, 1.875 paid, 0.625 back, in seven transactions that cost 0.000065 SOL in fees. [The eSIM in this demo is a sample profile / We issued a real eSIM from the app.] |
-| **1:00–1:20** | **Evidence** | The program is live on devnet with 22 tests, including the case where the traveler never signs. Every transaction is on the explorer. We have not validated demand yet: we have [N] interviews, and that is our next experiment. |
+| **1:00–1:20** | **Evidence** | The program is live on devnet with 22 tests, including the case where the traveler never signs. Every transaction is on the explorer. We have not validated demand yet. Validation so far is desk research and price comparison only. Customer interviews are planned and not done, and that is the next experiment. |
 | **1:20–1:40** | **Segment and price** | We start with Argentine travelers who already hold USDC, through the crypto communities we belong to. We charge the carrier's cost times one and a half: 2.48 USDC per gigabyte in Brazil, against [Y] with an Argentine card. |
 | **1:40–1:50** | **Team** | We are four, from Jujuy. Franco builds the escrow and the payments, Ignacio the connectivity and the contracts, Daniel the backend and metering, Joel the app. |
 | **1:50–2:00** | **Next** | Next: a real eSIM issued from the flow and ten sessions with travelers on a real trip, led by Joel, by [date]. |

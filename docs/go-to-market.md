@@ -91,7 +91,7 @@ Same figures as the README. AstroAm's column is the cheapest-network rate above 
 | Paraguay | **5.25** | 7.09 | 26% lower | 4.94 | 6% higher | 9.89 | **5.25** | 47% lower |
 | Bolivia | **2.76** | 9.69 | 72% lower | 7.02 | 61% lower | 14.05 | **2.76** | 80% lower |
 
-Customer discovery interviews with Argentine travelers in Jujuy confirmed that travelers routinely spend US$15 to US$30+ on carrier roaming or fixed packages with roughly 35% to 65% of the data expiring unused. See [validation.md](validation.md) and [interviews.md](interviews.md).
+Validation so far is this desk comparison of published rates. Customer interviews are planned and have not been done, so no traveler spend or unused-data share is cited here. See [validation.md](validation.md).
 
 A fully used 10 GB card pack: Chile and Uruguay US$3.25/GB (AstroAm 24% lower), Brazil US$2.47/GB (about the same: 24.80 USDC against US$24.72), Paraguay US$3.25/GB (AstroAm 61% higher), Bolivia US$4.55/GB (AstroAm 39% lower).
 
@@ -113,7 +113,7 @@ The unused balance is what comes back. Card packs and carrier packs do not retur
 
 The $1.75 issue fee is not in the per-GB figures. Buying USDC at the crypto rate (ARS 1,605.09) instead of MEP adds about 4.3%, and that is not in the table. VAT on these sellers is not added (they are not on ARCA's list). Impuesto PAIS ended on 23 December 2024.
 
-Traveler interviews, including roaming bills paid with an Argentine card, are in [validation.md](validation.md).
+What is checked so far is this desk comparison. Customer interviews are planned and have not been done. See [validation.md](validation.md).
 
 ### Smart plan selection (planned)
 
