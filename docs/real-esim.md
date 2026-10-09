@@ -44,13 +44,14 @@ Run it on a laptop, not on a public URL (see the next section).
 
 1. Check the Citrus reseller balance. The run needs $1.75 for the eSIM and $2.50 for the first tranche. Keep at least $10.
 2. Put the five variables above in a local `.env`. For a short test, also set `CLAIM_MIN_USDC=0.5` so a claim happens with little usage.
-3. Start the API and the app. The API log should say `fund flow is automatic` and name the operator.
-4. In the app, start a mission with a 5 USDC budget and pay from Phantom on devnet. A 5 USDC deposit pays for $3.33 of eSIM wallet at the 1.5× markup, enough for one full tranche.
-5. The API log should show `esim tranche funded` with `amountCents: 250`. If it does not, the deposit was not read from the escrow: check the operator key.
-6. Scan the QR with a phone. It is a real install code now. Citrus covers Argentina, so the test can be done at home.
-7. Use some data. Citrus reports usage about every 10 minutes and pauses reporting for about 15 minutes after each funding, so the first reading takes that long to appear.
-8. When usage shows, the meter signs it and the API writes a checkpoint on the escrow. End the mission in the app. The close pays AstroAm what was used and returns the rest.
-9. Write down: the ICCID with the middle digits hidden, the usage Citrus reported, and the explorer links of the deposit, a checkpoint and the close. Link them from the README.
+3. Run `npm run real:check`. It reads the Citrus balance and the program config, checks that both keys belong to this program, and lists what is still missing. It spends nothing.
+4. Start the API and the app. The API log should say `fund flow is automatic` and name the operator.
+5. In the app, start a mission with a 5 USDC budget and pay from Phantom on devnet. A 5 USDC deposit pays for $3.33 of eSIM wallet at the 1.5× markup, enough for one full tranche.
+6. The API log should show `esim tranche funded` with `amountCents: 250`. If it does not, the deposit was not read from the escrow: check the operator key.
+7. Scan the QR with a phone. It is a real install code now. Citrus covers Argentina, so the test can be done at home.
+8. Use some data. Citrus reports usage about every 10 minutes and pauses reporting for about 15 minutes after each funding, so the first reading takes that long to appear.
+9. When usage shows, the meter signs it and the API writes a checkpoint on the escrow. End the mission in the app. The close pays AstroAm what was used and returns the rest.
+10. Write down: the ICCID with the middle digits hidden, the usage Citrus reported, and the explorer links of the deposit, a checkpoint and the close. Link them from the README.
 
 What the run costs in real money: $1.75, plus whatever data is used. The part of the tranche that is not used goes back to the reseller balance when the trip closes. The USDC is devnet USDC.
 

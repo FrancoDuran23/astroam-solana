@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-07 · **Status:** analysis and options. The escrow with meter-key vouchers, checkpoints and claims is in `main` and on devnet; the rest of this document is not built, except where it says so.
 
-It follows [`automatizar-flujo-fondos-citrus-bridge.md`](automatizar-flujo-fondos-citrus-bridge.md). That decision assumed Citrus refills the reseller balance by itself with the saved card. This document has what Citrus's documentation and dashboard say, the architecture that results, three options for the money, and the comparison with other providers.
+It follows [`automate-fund-flow-citrus-bridge.md`](automate-fund-flow-citrus-bridge.md). That decision assumed Citrus refills the reseller balance by itself with the saved card. This document has what Citrus's documentation and dashboard say, the architecture that results, three options for the money, and the comparison with other providers.
 
 ## 1. What the reseller balance is
 

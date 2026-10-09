@@ -19,16 +19,15 @@ the test with a real eSIM are still pending (§6).
 > is not confirmed. The architecture that results, and the options for the
 > money, are in [`fund-flow-architecture.md`](fund-flow-architecture.md).
 
-This decision **replaces and extends** the proposal on the branch
-`docs/automatizar-flujo-de-fondos`
-(`docs/decisiones/automatizar-flujo-de-fondos.md`). That one left the treasury
+This decision **replaces and extends** an earlier proposal that was never
+merged. That one left the treasury
 rail open (collected USDC → the reseller account's USD). This one closes it:
 **Bridge** liquidates Solana USDC to AstroAm's bank account, and that account
 backs the **saved card** Citrus refills itself with. The escrow keeps the
 session key and small tranches. It does not change app code.
 
 Product context already decided: metering with the provider
-([`medicion-con-proveedor.md`](medicion-con-proveedor.md)) and the Citrus
+([`metering-with-provider.md`](metering-with-provider.md)) and the Citrus
 model ([`../citrus-mobile-brief.md`](../citrus-mobile-brief.md)).
 
 ## 1. Problem
