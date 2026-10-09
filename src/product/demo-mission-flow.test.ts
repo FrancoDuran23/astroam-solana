@@ -92,6 +92,33 @@ test('demo traffic signs vouchers and charges the destination rate, without paus
   assert.equal(last.status, 'paused')
 })
 
+test('the mission log records the eSIM, each usage reading, and the pause when the budget runs out', async () => {
+  const id = await activeMission(5)
+  await service.processDemoTraffic(id, 300 * 1_000_000)
+  await service.processDemoTraffic(id, 1_800 * 1_000_000) // 2.100 MB > 2.000
+
+  const entries = await service.getMissionLog(id)
+  assert.deepEqual(
+    entries.map((e) => e.type),
+    ['esim.provisioned', 'usage.demo_traffic', 'usage.demo_traffic', 'esim.paused'],
+  )
+  const mission = await service.getMission(id)
+  assert.equal(entries[0]!.iccid, mission.iccid)
+  assert.equal(entries[0]!.data.isMock, true)
+  assert.equal(entries[1]!.data.meteredBytes, '300000000')
+  assert.equal(entries[1]!.data.consumedUsdc, 0.75)
+  assert.equal(entries[2]!.data.meteredBytes, '2100000000')
+  assert.equal(entries[3]!.data.reason, 'budget_exhausted')
+})
+
+test('the mission log is per mission', async () => {
+  const a = await activeMission(5)
+  const b = await activeMission(5)
+  await service.processDemoTraffic(a, 100 * 1_000_000)
+  assert.deepEqual((await service.getMissionLog(b)).map((e) => e.type), ['esim.provisioned'])
+  await assert.rejects(service.getMissionLog('m_missing'))
+})
+
 test('the vouchers of two missions do not collide', async () => {
   const a = await activeMission(5)
   const b = await activeMission(5)

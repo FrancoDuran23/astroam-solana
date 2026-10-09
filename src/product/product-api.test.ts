@@ -208,6 +208,19 @@ test('processTraffic executes IntegratedMeterService & passes M1 to VoucherPort 
 
   assert.equal(usageBody.meteredBytes, '1000000')
   assert.equal(usageBody.isEstimation, true)
+
+  // 4. The mission log has the eSIM and the traffic
+  const logsRes = await fetch(`${baseUrl}/api/missions/${missionId}/logs`)
+  assert.equal(logsRes.status, 200)
+  const logsBody = (await logsRes.json()) as { missionId: string; entries: { type: string; iccid: string | null }[] }
+  assert.equal(logsBody.missionId, missionId)
+  assert.deepEqual(logsBody.entries.map((e) => e.type), ['esim.provisioned', 'usage.demo_traffic'])
+  assert.equal(logsBody.entries[0].iccid, actBody.esim?.iccid)
+})
+
+test('GET /api/missions/:id/logs answers 404 for an unknown mission', async () => {
+  const res = await fetch(`${baseUrl}/api/missions/mis_missing/logs`)
+  assert.equal(res.status, 404)
 })
 
 test('Unsigned M2 does NOT credit paid quota', async () => {

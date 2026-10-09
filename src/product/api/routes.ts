@@ -152,6 +152,16 @@ export function createProductRouter(service: MissionProductService): Router {
     }
   })
 
+  // 7b. Mission log: the eSIM's provisioning and every usage reading, in order
+  router.get('/missions/:id/logs', async (req: Request, res: Response) => {
+    try {
+      const entries = await service.getMissionLog(getId(req))
+      res.json({ missionId: getId(req), entries })
+    } catch (err) {
+      res.status(404).json({ error: 'not_found', message: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
   // 8. Pause Mission
   router.post('/missions/:id/pause', requireAuthIfNeeded, async (req: Request, res: Response) => {
     try {
