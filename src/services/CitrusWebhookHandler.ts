@@ -76,7 +76,7 @@ export class CitrusWebhookHandler {
     const parsed = parseWebhookPayload(payload);
     if (parsed === null) {
       this.logger({ level: "warn", reason: "webhook_malformed", payload: safeStringify(payload) });
-      return { accepted: true, handled: "malformed", reason: "payload no parseable como evento Citrus" };
+      return { accepted: true, handled: "malformed", reason: "payload cannot be parsed as a Citrus event" };
     }
     if (this.log.seen(parsed.id)) {
       return { accepted: true, handled: "duplicate", event: parsed.event };

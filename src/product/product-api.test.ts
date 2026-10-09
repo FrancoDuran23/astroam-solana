@@ -41,7 +41,7 @@ class MockVoucherPort implements VoucherPort {
   async requestVoucher(m1: Message1): Promise<Message2> {
     this.requestedM1s.push(m1)
     if (this.mode === 'throw') {
-      throw new Error('Agente de vouchers no disponible')
+      throw new Error('Voucher agent unavailable')
     }
     const channel = m1.channel || '0x5FbDB2315678afecb367f032d93F642f64180aa3'
     if (this.mode === 'unsigned') {
@@ -54,7 +54,7 @@ class MockVoucherPort implements VoucherPort {
         retryable: false,
         remaining: '0',
         meterReadingId: m1.meterReadingId,
-        detail: 'Depósito agotado',
+        detail: 'Deposit exhausted',
       }
     }
     return {

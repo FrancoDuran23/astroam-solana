@@ -38,7 +38,7 @@ function seedRow(iccid: string, over: Partial<EsimRecordRow> = {}): EsimRecordRo
   };
 }
 
-test("round-trip: los bigint raíz (funded/charged) y los ANIDADOS del defund se reviven tras reabrir el archivo", async () => {
+test("round-trip: the root bigints (funded/charged) and the NESTED ones of the defund are revived after reopening the file", async () => {
   const dir = tempDir();
   const filePath = path.join(dir, "esim.json");
   const store = openEsimStore(filePath);
@@ -57,7 +57,7 @@ test("round-trip: los bigint raíz (funded/charged) y los ANIDADOS del defund se
     }),
   );
 
-  // El write no debe lanzar (regresión: JSON.stringify no serializa BigInt).
+  // The write must not throw (regression: JSON.stringify does not serialize BigInt).
   const raw = fs.readFileSync(filePath, "utf8");
   assert.equal(raw.includes('"estimatedReturnMicroUsd": "2000000"'), true);
   assert.equal(raw.includes('"returnedMicroUsd": "1234567"'), true);
@@ -67,7 +67,7 @@ test("round-trip: los bigint raíz (funded/charged) y los ANIDADOS del defund se
   assert.equal(first.defund!.estimatedReturnMicroUsd, 2_000_000n);
   assert.equal(first.defund!.returnedMicroUsd, 1_234_567n);
 
-  // Cierre + reapertura: lo que hay en disco se revive a BigInt otra vez.
+  // Close + reopen: what is on disk is revived to BigInt again.
   const reopened = openEsimStore(filePath);
   const again = reopened.get("RT-1")!;
   assert.equal(again.defund!.estimatedReturnMicroUsd, 2_000_000n);
@@ -75,7 +75,7 @@ test("round-trip: los bigint raíz (funded/charged) y los ANIDADOS del defund se
   assert.equal(again.defund!.settledAt, now);
 });
 
-test("round-trip: un defund pendiente (returnedMicroUsd null) sobrevive sin volverse string", async () => {
+test("round-trip: a pending defund (returnedMicroUsd null) survives without turning into a string", async () => {
   const dir = tempDir();
   const store = openEsimStore(path.join(dir, "esim.json"));
   const now = "2026-09-24T10:00:00.000Z";
@@ -98,7 +98,7 @@ test("round-trip: un defund pendiente (returnedMicroUsd null) sobrevive sin volv
   assert.equal(row.defund!.estimatedReturnMicroUsd, 0n);
 });
 
-test("round-trip: pendingFund sobrevive (el estado que reconcilia FundingService tras un crash, R5)", async () => {
+test("round-trip: pendingFund survives (the state FundingService reconciles after a crash, R5)", async () => {
   const dir = tempDir();
   const store = openEsimStore(path.join(dir, "esim.json"));
   await store.update("PF-1", () =>
@@ -114,7 +114,7 @@ test("round-trip: pendingFund sobrevive (el estado que reconcilia FundingService
   });
 });
 
-test("update es serializado por iccid y persiste la mutación: la fila nueva se lee fresca de disco", async () => {
+test("update is serialized per iccid and persists the mutation: the new row is read fresh from disk", async () => {
   const dir = tempDir();
   const store = openEsimStore(path.join(dir, "esim.json"));
   await store.update("MUT-1", () => seedRow("MUT-1"));
@@ -125,7 +125,7 @@ test("update es serializado por iccid y persiste la mutación: la fila nueva se 
   assert.equal(row.defund, null);
 });
 
-test("getByUserRef devuelve la fila del userRef y list() el snapshot completo", async () => {
+test("getByUserRef returns the row of the userRef and list() the full snapshot", async () => {
   const dir = tempDir();
   const store = openEsimStore(path.join(dir, "esim.json"));
   await store.update("A-1", () => seedRow("A-1"));
@@ -136,7 +136,7 @@ test("getByUserRef devuelve la fila del userRef y list() el snapshot completo", 
   assert.equal(store.get("no-such"), undefined);
 });
 
-test("un archivo corrupto (crash a mitad de escritura) se trata como vacío, no revienta el proceso", () => {
+test("a corrupt file (crash halfway through a write) is treated as empty and does not crash the process", () => {
   const dir = tempDir();
   const filePath = path.join(dir, "esim.json");
   fs.writeFileSync(filePath, "{ \"v\": 1, \"iccid\": trunca");

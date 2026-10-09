@@ -123,33 +123,33 @@ async function buildHarness(over: {
   };
 }
 
-test("caminata completa (fake + poll): defund → asentamiento → vale final → canal cerrado → idle", async () => {
+test("full walk (fake + poll): defund → settlement → final voucher → channel closed → idle", async () => {
   const h = await buildHarness({ stableWindowMs: 0 });
 
   const started = await h.closer.beginClose(h.iccid);
   assert.deepEqual(started, { started: true, reason: "ok" });
   assert.equal(h.store.get(h.iccid)!.closing!.step, "defund_solicitado");
 
-  // 1) Solicitar el defund: el FakeProvider lo inicia y marcamos 202.
+  // 1) Request the defund: the FakeProvider starts it and we record the 202.
   const solicited = await h.closer.runOnce(h.iccid);
   assert.equal(solicited.step, "defund_liquidado");
   assert.equal(h.provider.sim(h.iccid).defundPending, true);
   assert.equal(h.store.get(h.iccid)!.closing!.step, "defund_liquidado");
 
-  // 2) Espera: el wallet sigue fondado → no se asienta todavía.
+  // 2) Wait: the wallet is still funded → not settled yet.
   const waiting = await h.closer.runOnce(h.iccid);
   assert.equal(waiting.step, "defund_liquidado");
   assert.equal(waiting.settled, false);
 
-  // 3) Citrus asienta el defund (wallet → 0) y hubo consumo final.
+  // 3) Citrus settles the defund (wallet → 0) and there was final usage.
   h.provider.settleDefund(h.iccid);
   h.provider.setChargedUsd(h.iccid, 2_600_000n);
   h.store.get(h.iccid); // fresh read below
   const settled = await h.closer.runOnce(h.iccid);
-  assert.equal(settled.step, "canal_cerrado"); // advanceAfterSettlement corre el vale final en el mismo paso
+  assert.equal(settled.step, "canal_cerrado"); // advanceAfterSettlement runs the final voucher in the same step
   assert.equal(h.store.get(h.iccid)!.closing!.step, "canal_cerrado");
 
-  // 4) Cerrar el canal → done + estado idle con la próxima salida limpia.
+  // 4) Close the channel → done + idle state with a clean next exit.
   const done = await h.closer.runOnce(h.iccid);
   assert.equal(done.step, "done");
   assert.equal(h.closeCalls(), 1);
@@ -159,18 +159,18 @@ test("caminata completa (fake + poll): defund → asentamiento → vale final �
   assert.equal(row.defundPending, false);
   assert.equal(row.fundedMicroUsd, 0n);
   assert.equal(row.chargedBaselineMicroUsd, 0n);
-  // El eSIM reaprovisionado reusa la misma fila (R4/D8); fake mantiene defund null.
+  // The re-provisioned eSIM reuses the same row (R4/D8); the fake keeps defund null.
   assert.equal(row.defund, null);
   assert.equal(row.channelId, CHANNEL);
 });
 
-test("la ruta webhook asienta por defund.settledAt y no vuelve a pedir el defund", async () => {
+test("the webhook path settles by defund.settledAt and does not request the defund again", async () => {
   const now = new Date().toISOString();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "session-closer-webhook-"));
   const h = await buildHarness({
     stableWindowMs: 0,
-    // Como los perseguiría CitrusProvider.refundUnused: defund pendiente ya
-    // persistido con su metadata, sin liquidar todavía.
+    // As CitrusProvider.refundUnused would persist them: a pending defund
+    // already stored with its metadata, not settled yet.
     row: {
       status: "defund_pending",
       defundPending: true,
@@ -184,12 +184,12 @@ test("la ruta webhook asienta por defund.settledAt y no vuelve a pedir el defund
     },
   });
 
-  // El cierre reanuda en defund_liquidado (crash post-202), sin re-solicitar.
+  // The close resumes at defund_liquidado (crash after the 202), without requesting again.
   const started = await h.closer.beginClose(h.iccid);
   assert.equal(started.started, true);
   assert.equal(h.store.get(h.iccid)!.closing!.step, "defund_liquidado");
 
-  // El webhook esim.defunded estampa el asentamiento (ese es el rol del handler).
+  // The esim.defunded webhook stamps the settlement (that is the handler's role).
   const log = WebhookEventLog.open(path.join(dir, "events.jsonl"));
   const handler = new CitrusWebhookHandler({ log, esimStore: h.store, logger: () => {} });
   await handler.handle({
@@ -200,7 +200,7 @@ test("la ruta webhook asienta por defund.settledAt y no vuelve a pedir el defund
   });
   assert.notEqual(h.store.get(h.iccid)!.defund!.settledAt, null);
 
-  // El Siguiente runOnce avanza por la ruta webhook (defund.settledAt != null).
+  // The next runOnce advances through the webhook path (defund.settledAt != null).
   const after = await h.closer.runOnce(h.iccid);
   assert.equal(after.step, "canal_cerrado");
 
@@ -208,44 +208,44 @@ test("la ruta webhook asienta por defund.settledAt y no vuelve a pedir el defund
   assert.equal(done.step, "done");
   const row = h.store.get(h.iccid)!;
   assert.equal(row.status, "idle");
-  // La auditoría conserva el registro del defund con su devolución.
+  // The audit keeps the defund record with its refund.
   assert.equal(row.defund!.returnedMicroUsd, 250_000n);
   assert.notEqual(row.defund!.settledAt, null);
 });
 
-test("beginClose es idempotente: un cierre ya iniciado no se reinicia desde cero", async () => {
+test("beginClose is idempotent: a close already started does not restart from zero", async () => {
   const h = await buildHarness();
   const first = await h.closer.beginClose(h.iccid);
   assert.equal(first.started, true);
   const second = await h.closer.beginClose(h.iccid);
   assert.deepEqual(second, { started: false, reason: "already_closing" });
-  // El marcador sigue en defund_solicitado (no se resetea al paso cero? sí, al primer paso).
+  // The marker stays at defund_solicitado (the first step; it is not reset).
   assert.equal(h.store.get(h.iccid)!.closing!.step, "defund_solicitado");
 });
 
-test("beginClose reanuda en defund_liquidado cuando el defund quedó pedido (crash) y no lo re-pide", async () => {
+test("beginClose resumes at defund_liquidado when the defund was already requested (crash) and does not request it again", async () => {
   const h = await buildHarness();
-  // Crash tras refundUnused 202: defundPending persistido, fila sin closing.
+  // Crash after the refundUnused 202: defundPending persisted, row without closing.
   await h.store.update(h.iccid, (r) => ({ ...r!, defundPending: true }));
   const solicitedAtBefore = h.provider.sim(h.iccid).defundSolicitedAt;
   const started = await h.closer.beginClose(h.iccid);
   assert.equal(started.started, true);
   assert.equal(h.store.get(h.iccid)!.closing!.step, "defund_liquidado");
 
-  // El paso de espera no vuelve a llamar refundUnused.
+  // The waiting step does not call refundUnused again.
   await h.closer.runOnce(h.iccid);
   assert.equal(h.provider.sim(h.iccid).defundSolicitedAt, solicitedAtBefore);
 });
 
-test("runOnce sin fila o sin cierre en curso devuelve skipped", async () => {
+test("runOnce with no row or no close in progress returns skipped", async () => {
   const h = await buildHarness();
   assert.deepEqual(await h.closer.runOnce("NO-SUCH"), { step: null, skipped: "no_row" });
   assert.deepEqual(await h.closer.runOnce(h.iccid), { step: null, skipped: "not_closing" });
 });
 
-test("un cierre de canal fallido mantiene el paso canal_cerrado para que el operador reintente", async () => {
+test("a failed channel close keeps the canal_cerrado step so the operator can retry", async () => {
   const h = await buildHarness({
-    closeOutcome: { kind: "blocked", reason: "funder_allowance_missing", detail: "sin allowance" },
+    closeOutcome: { kind: "blocked", reason: "funder_allowance_missing", detail: "no allowance" },
     row: { closing: { step: "canal_cerrado", startedAt: new Date().toISOString() } },
   });
 
@@ -259,14 +259,14 @@ test("un cierre de canal fallido mantiene el paso canal_cerrado para que el oper
   assert.equal(second.step, "canal_cerrado");
   assert.equal(h.closeCalls(), 2);
 
-  // El reintento con un resultado OK finaliza el camino.
+  // The retry with an OK result finishes the path.
   h.setCloseOutcome({ kind: "closed", txHash: "0xok", settledRaw: 20_000n, refundedRaw: 1_000n });
   const done = await h.closer.runOnce(h.iccid);
   assert.equal(done.step, "done");
   assert.equal(h.store.get(h.iccid)!.status, "idle");
 });
 
-test("el vale final atestigua el consumo en el escrow antes de cerrar el canal", async () => {
+test("the final voucher attests the usage on the escrow before closing the channel", async () => {
   const calls: { iccid: string; equivalentBytes: bigint }[] = [];
   const h = await buildHarness({
     stableWindowMs: 0,
@@ -291,7 +291,7 @@ test("el vale final atestigua el consumo en el escrow antes de cerrar el canal",
   );
 });
 
-test("si el checkpoint del escrow falla, el cierre no avanza y se reintenta", async () => {
+test("if the escrow checkpoint fails, the close does not advance and is retried", async () => {
   let fail = true;
   const h = await buildHarness({
     stableWindowMs: 0,

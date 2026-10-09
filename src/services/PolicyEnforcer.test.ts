@@ -94,7 +94,7 @@ test("decidePolicy suspends when not even 1 MB remains payable", () => {
   const action = decidePolicy(input(10_000n, 0n)); // 10_000 raw < 1 MB
   assert.equal(action.kind, "suspend");
   if (action.kind === "suspend") {
-    assert.match(action.reason, /no alcanza ni para 1 MB/);
+    assert.match(action.reason, /does not cover even 1 MB/);
   }
 });
 

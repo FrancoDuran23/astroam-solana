@@ -110,7 +110,7 @@ export class UsageLoop {
       const charged = usage.chargedMicroUsd - baseline < 0n ? 0n : usage.chargedMicroUsd - baseline;
       const eqBytesRaw = equivalentBytes(charged, this.markupBps, this.usdcUsdRateBps, this.pricePerMbRaw);
       const seen = this.lastEqBytes.get(iccid) ?? 0n;
-      const eqBytes = eqBytesRaw > seen ? eqBytesRaw : seen; // R6 monotónico
+      const eqBytes = eqBytesRaw > seen ? eqBytesRaw : seen; // R6 monotonic
       this.lastEqBytes.set(iccid, eqBytes);
 
       if (this.session !== undefined) {

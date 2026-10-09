@@ -62,7 +62,7 @@ after(() => {
   delete process.env.SOLANA_PAYEE_ADDRESS;
 });
 
-test("la misión cotiza el cierre en USDC de 6 decimales y no debita cada MB", async () => {
+test("the mission quotes the close in 6-decimal USDC and does not debit each MB", async () => {
   const { id } = await service.createMission({
     destination: BRASIL,
     startDate: "2026-10-01",
@@ -97,7 +97,7 @@ test("la misión cotiza el cierre en USDC de 6 decimales y no debita cada MB", a
   assert.equal(mission.depositExplorerUrl, `https://explorer.solana.com/tx/${SIGNATURE}?cluster=devnet`);
 });
 
-test("con el programa configurado el vale apunta a ese program id", async () => {
+test("with the program configured the voucher points at that program id", async () => {
   process.env.SOLANA_PROGRAM_ID = PROGRAM;
   process.env.SOLANA_PAYEE_ADDRESS = PAYEE;
   const { id } = await service.createMission({

@@ -1,11 +1,11 @@
-// QR de mentira para los modos simulados (FakeProvider, FakeRail).
+// Fake QR for the simulated modes (FakeProvider, FakeRail).
 
 import { createHash } from "node:crypto";
 
 /**
- * Imagen con aspecto de QR (SVG válido, 25×25 módulos) derivada de `seed`,
- * para que la app muestre algo real en demos (eSIM y pago simulados). NO es
- * escaneable: lo que representa no existe.
+ * QR-looking image (valid SVG, 25×25 modules) derived from `seed`, so the
+ * app shows something real in demos (simulated eSIM and payment). It is NOT
+ * scannable: what it represents does not exist.
  */
 export function fakeQrDataUri(seed: string): string {
   const size = 25;

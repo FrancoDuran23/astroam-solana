@@ -106,7 +106,7 @@ test("handle: malformed payload is logged and accepted (200-class), never throws
   const { handler, store, stamped } = makeHarness();
   await store.update("FAKE-1", () => seedRow("FAKE-1"));
   const result = await handler.handle({ this_is_not: "an event", id: 42 });
-  assert.deepEqual(result, { accepted: true, handled: "malformed", reason: "payload no parseable como evento Citrus" });
+  assert.deepEqual(result, { accepted: true, handled: "malformed", reason: "payload cannot be parsed as a Citrus event" });
   assert.equal(stamped.some((l) => l.reason === "webhook_malformed"), true);
   // Store untouched.
   assert.equal(store.get("FAKE-1")!.defund, null);

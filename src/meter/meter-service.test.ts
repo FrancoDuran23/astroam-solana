@@ -14,10 +14,10 @@ import {
   type VoucherPort,
 } from "./voucher-port.ts";
 
-/** Id de canal como lo formatea un riel EVM (dirección del contrato). */
+/** Channel id as an EVM rail formats it (the contract address). */
 const CHANNEL = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
-/** 1_048_576 raw/MiB = 1 raw/byte = 1_000_000 raw/MB: el mismo precio que
- * `pricePerMbRaw: 1_000_000n` de la política, expresado por MiB (CF-R2). */
+/** 1_048_576 raw/MiB = 1 raw/byte = 1_000_000 raw/MB: the same price as the
+ * policy's `pricePerMbRaw: 1_000_000n`, expressed per MiB (CF-R2). */
 const PRICE_PER_MIB_RAW = 1_048_576n;
 
 function voucherOptions(depositRaw: bigint, voucherPort?: VoucherPort) {
@@ -30,7 +30,7 @@ function voucherOptions(depositRaw: bigint, voucherPort?: VoucherPort) {
 
 const ACTIVE_USAGE: SimUsage = { chargedMicroUsd: 0n, walletMicroUsd: 0n, status: "active", asOf: "" };
 
-test("IntegratedMeterService: procesa tráfico dentro del saldo y mantiene la conexión activa", async () => {
+test("IntegratedMeterService: processes traffic within the balance and keeps the connection active", async () => {
   let suspendedCalls = 0;
 
   const fakeProvider: ConnectivityProvider = {
@@ -58,7 +58,7 @@ test("IntegratedMeterService: procesa tráfico dentro del saldo y mantiene la co
 
   const fakeBalancePort = {
     async getChannelBalance() {
-      return 10_000_000n; // 1 USDC en raw units
+      return 10_000_000n; // 1 USDC in raw units
     },
   };
 
@@ -66,7 +66,7 @@ test("IntegratedMeterService: procesa tráfico dentro del saldo y mantiene la co
     session,
     provider: fakeProvider,
     balancePort: fakeBalancePort,
-    pricePerMbRaw: 1_000_000n, // 0.1 USDC por MB
+    pricePerMbRaw: 1_000_000n, // 0.1 USDC per MB
     ...voucherOptions(10_000_000n),
     logger: () => {},
   });
@@ -79,7 +79,7 @@ test("IntegratedMeterService: procesa tráfico dentro del saldo y mantiene la co
   assert.equal(res.meterStatus.paidQuotaBytes, 500_000);
 });
 
-test("IntegratedMeterService: suspende la eSIM si el consumo agota el saldo del canal", async () => {
+test("IntegratedMeterService: suspends the eSIM if usage exhausts the channel balance", async () => {
   let suspendedIccid = "";
 
   const fakeProvider: ConnectivityProvider = {
@@ -107,7 +107,7 @@ test("IntegratedMeterService: suspende la eSIM si el consumo agota el saldo del 
 
   const fakeBalancePort = {
     async getChannelBalance() {
-      return 1_000_000n; // Saldo muy pequeño: 0.1 USDC (1 MB)
+      return 1_000_000n; // Very small balance: 0.1 USDC (1 MB)
     },
   };
 
@@ -115,18 +115,18 @@ test("IntegratedMeterService: suspende la eSIM si el consumo agota el saldo del 
     session,
     provider: fakeProvider,
     balancePort: fakeBalancePort,
-    pricePerMbRaw: 1_000_000n, // 0.1 USDC por MB
+    pricePerMbRaw: 1_000_000n, // 0.1 USDC per MB
     ...voucherOptions(10_000_000n),
     logger: () => {},
   });
 
-  // Consumir 2 MB (supera el saldo del canal de 1 MB)
+  // Use 2 MB (above the channel balance of 1 MB)
   const res = await service.processTraffic(2_000_000);
   assert.equal(res.actionApplied.kind, "suspend");
   assert.equal(suspendedIccid, "89551...");
 });
 
-// --- Integración con POST /vouchers (VoucherPort) ---------------------------
+// --- Integration with POST /vouchers (VoucherPort) --------------------------
 
 type ProviderCalls = { suspended: string[] };
 
@@ -178,7 +178,7 @@ function makeService(opts: {
   });
 }
 
-/** Puerto que registra cada M1 y responde con lo que devuelva `respond`. */
+/** Port that records every M1 and answers with whatever `respond` returns. */
 function capturingPort(respond: (m1: Message1) => Promise<Message2> | Message2): VoucherPort & { sent: Message1[] } {
   const sent: Message1[] = [];
   return {
@@ -200,7 +200,7 @@ function unsignedFor(m1: Message1, reason: Parameters<typeof buildUnsigned>[0]):
   }).body;
 }
 
-test("IntegratedMeterService: pide el vale con el M1 del acumulado y acredita solo si el agente firma", async () => {
+test("IntegratedMeterService: requests the voucher with the M1 of the total and credits only if the agent signs", async () => {
   const inner = createInMemoryVoucherPort({ depositRaw: 10_000_000n });
   const port = capturingPort((m1) => inner.requestVoucher(m1));
   const service = makeService({ balanceRaw: 10_000_000n, voucherPort: port });
@@ -216,7 +216,7 @@ test("IntegratedMeterService: pide el vale con el M1 del acumulado y acredita so
   assert.equal(m1a!.cumulativeBytes, 1_500_000);
   assert.equal(m1a!.cumulativeAmount, "1500000"); // ceilDiv(bytes × PRICE_PER_MIB_RAW, 1 MiB)
   assert.equal(m1a!.observedAt, "2026-09-23T12:00:00.000Z");
-  // Acumulado desde la apertura del canal (VE-R4), nunca el delta
+  // Total since the channel opened (VE-R4), never the delta
   assert.equal(m1b!.cumulativeBytes, 2_000_000);
   assert.notEqual(m1a!.meterReadingId, m1b!.meterReadingId);
 
@@ -227,30 +227,30 @@ test("IntegratedMeterService: pide el vale con el M1 del acumulado y acredita so
   assert.equal(second.meterStatus.isConnectionActive, true);
 });
 
-test("IntegratedMeterService: un rechazo no reintentable NO acredita y el medidor termina cortando", async () => {
+test("IntegratedMeterService: a non-retryable rejection does NOT credit and the meter ends up cutting", async () => {
   const provider = recordingProvider();
   const port = capturingPort((m1) => unsignedFor(m1, "channel_closing"));
-  // Depósito holgado: la política no tiene motivo para actuar.
+  // Ample deposit: the policy has no reason to act.
   const service = makeService({ balanceRaw: 100_000_000n, voucherPort: port, provider });
 
   const first = await service.processTraffic(800_000);
   assert.equal(first.voucher.kind, "unsigned");
   assert.equal(first.actionApplied.kind, "noop");
   assert.equal(first.meterStatus.paidQuotaBytes, 0);
-  assert.equal(first.meterStatus.isConnectionActive, true); // todavía dentro de la cuota impaga
+  assert.equal(first.meterStatus.isConnectionActive, true); // still within the unpaid quota
 
-  // Sin vale, el consumo supera la cuota impaga (1 MB) y el medidor corta.
+  // Without a voucher, usage exceeds the unpaid quota (1 MB) and the meter cuts.
   const second = await service.processTraffic(800_000);
   assert.equal(second.meterStatus.paidQuotaBytes, 0);
   assert.equal(second.meterStatus.isConnectionActive, false);
-  // La política no cambia: sin depósito agotado, no toca la eSIM.
+  // The policy does not change: with no exhausted deposit, it leaves the eSIM alone.
   assert.deepEqual(provider.calls, { suspended: [] });
 });
 
-test("IntegratedMeterService: channel_exhausted no acredita y la política suspende la eSIM", async () => {
+test("IntegratedMeterService: channel_exhausted does not credit and the policy suspends the eSIM", async () => {
   const provider = recordingProvider();
   const service = makeService({
-    balanceRaw: 1_000_000n, // 1 MB de depósito
+    balanceRaw: 1_000_000n, // 1 MB of deposit
     voucherPort: createInMemoryVoucherPort({ depositRaw: 1_000_000n }),
     provider,
   });
@@ -266,14 +266,14 @@ test("IntegratedMeterService: channel_exhausted no acredita y la política suspe
   assert.equal(res.meterStatus.isConnectionActive, false);
 });
 
-// --- processCumulative (R8): la ruta del usage-loop / vale final del cierre ---
+// --- processCumulative (R8): the path of the usage loop / final voucher of the close ---
 
-test("processCumulative: pide el vale del acumulado, acredita y no suspende cuando el saldo alcanza", async () => {
+test("processCumulative: requests the voucher for the total, credits and does not suspend when the balance is enough", async () => {
   const provider = recordingProvider();
   const port = capturingPort((m1) => createInMemoryVoucherPort({ depositRaw: 10_000_000n }).requestVoucher(m1));
   const service = makeService({ balanceRaw: 10_000_000n, voucherPort: port, provider });
 
-  // 1 500 000 bytes equivalentes: 1.5 USDC de costo contra 1 USDC×10 de depósito.
+  // 1 500 000 equivalent bytes: 1.5 USDC of cost against 1 USDC×10 of deposit.
   const res = await service.processCumulative(1_500_000);
 
   assert.equal(port.sent.length, 1);
@@ -281,14 +281,14 @@ test("processCumulative: pide el vale del acumulado, acredita y no suspende cuan
   assert.equal(res.actionApplied.kind, "noop");
   assert.equal(res.voucher.kind, "signed");
   assert.equal(res.meterStatus.paidQuotaBytes, 1_500_000);
-  // processCumulative NO registra tráfico: el acumulado ya viene de afuera.
+  // processCumulative does NOT record traffic: the total already comes from outside.
   assert.equal(res.meterStatus.cumulativeBytes, 0);
   assert.deepEqual(provider.calls.suspended, []);
 });
 
-test("processCumulative: suspende la eSIM cuando el canal se agota y no acredita", async () => {
+test("processCumulative: suspends the eSIM when the channel runs out and does not credit", async () => {
   const provider = recordingProvider();
-  // Balance del canal chico (0.1 USDC) pero el agente sí firma el vale.
+  // Small channel balance (0.1 USDC) but the agent does sign the voucher.
   const port = capturingPort((m1) => createInMemoryVoucherPort({ depositRaw: 10_000_000n }).requestVoucher(m1));
   const service = makeService({ balanceRaw: 1_000_000n, voucherPort: port, provider });
 
@@ -297,10 +297,10 @@ test("processCumulative: suspende la eSIM cuando el canal se agota y no acredita
   assert.equal(res.actionApplied.kind, "suspend");
   assert.deepEqual(provider.calls.suspended, ["89551..."]);
   assert.equal(res.voucher.kind, "signed");
-  assert.equal(res.meterStatus.paidQuotaBytes, 0, "sin cuota: el canal está agotado");
+  assert.equal(res.meterStatus.paidQuotaBytes, 0, "no quota: the channel is exhausted");
 });
 
-test("IntegratedMeterService: reintenta un reason reintentable y acredita cuando el agente firma", async () => {
+test("IntegratedMeterService: retries a retryable reason and credits when the agent signs", async () => {
   const inner = createInMemoryVoucherPort({ depositRaw: 10_000_000n });
   let calls = 0;
   const flaky: VoucherPort = {
@@ -321,7 +321,7 @@ test("IntegratedMeterService: reintenta un reason reintentable y acredita cuando
   assert.equal(res.meterStatus.paidQuotaBytes, 1_000_000);
 });
 
-test("IntegratedMeterService: si el reason reintentable persiste, no acredita ni cambia la política", async () => {
+test("IntegratedMeterService: if the retryable reason persists, it neither credits nor changes the policy", async () => {
   const provider = recordingProvider();
   const port = capturingPort((m1) => unsignedFor(m1, "signer_unavailable"));
   const service = makeService({
@@ -340,13 +340,13 @@ test("IntegratedMeterService: si el reason reintentable persiste, no acredita ni
   assert.deepEqual(provider.calls, { suspended: [] });
 });
 
-test("IntegratedMeterService: una lectura repetida usa el vale reutilizado (reused) y sigue acreditada", async () => {
+test("IntegratedMeterService: a repeated reading uses the reused voucher and stays credited", async () => {
   const inner = createInMemoryVoucherPort({ depositRaw: 10_000_000n });
   const port = capturingPort((m1) => inner.requestVoucher(m1));
   const service = makeService({ balanceRaw: 10_000_000n, voucherPort: port });
 
   const first = await service.processTraffic(1_000_000);
-  const repeat = await service.processTraffic(0); // mismo acumulado: reintento idempotente
+  const repeat = await service.processTraffic(0); // same total: idempotent retry
 
   assert.equal(first.voucher.kind, "signed");
   assert.equal(repeat.voucher.kind, "signed");
@@ -358,12 +358,12 @@ test("IntegratedMeterService: una lectura repetida usa el vale reutilizado (reus
   assert.equal(repeat.meterStatus.paidQuotaBytes, 1_000_000);
 });
 
-test("IntegratedMeterService: una falla de transporte no lanza, no acredita y deja actuar a la política", async () => {
+test("IntegratedMeterService: a transport failure does not throw, does not credit and lets the policy act", async () => {
   const service = makeService({
     balanceRaw: 10_000_000n,
     voucherPort: {
       async requestVoucher() {
-        throw new VoucherTransportError("POST /vouchers falló en transporte: ECONNREFUSED", { retryable: true });
+        throw new VoucherTransportError("POST /vouchers failed in transport: ECONNREFUSED", { retryable: true });
       },
     },
   });
@@ -374,7 +374,7 @@ test("IntegratedMeterService: una falla de transporte no lanza, no acredita y de
   assert.equal(res.meterStatus.paidQuotaBytes, 0);
 });
 
-test("IntegratedMeterService: un vale firmado por menos del acumulado pedido no acredita", async () => {
+test("IntegratedMeterService: a voucher signed for less than the requested total does not credit", async () => {
   const inner = createInMemoryVoucherPort({ depositRaw: 10_000_000n });
   const signedLow = await inner.requestVoucher({
     version: 1,
@@ -397,7 +397,7 @@ test("IntegratedMeterService: un vale firmado por menos del acumulado pedido no 
   assert.equal(res.meterStatus.paidQuotaBytes, 0);
 });
 
-test("IntegratedMeterService: rechaza precios desalineados entre la política (MB) y el agente (MiB)", () => {
+test("IntegratedMeterService: rejects misaligned prices between the policy (MB) and the agent (MiB)", () => {
   const session = createConnectivitySession({
     id: "sess_1",
     userId: "user_1",
@@ -418,7 +418,7 @@ test("IntegratedMeterService: rechaza precios desalineados entre la política (M
     },
   };
 
-  // PRICE_PER_MIB_RAW cargado con el número por MB: el error típico.
+  // PRICE_PER_MIB_RAW loaded with the per-MB number: the typical mistake.
   assert.throws(
     () =>
       new IntegratedMeterService({
@@ -430,6 +430,6 @@ test("IntegratedMeterService: rechaza precios desalineados entre la política (M
         voucherPricePerMibRaw: 1_000_000n,
         logger: () => {},
       }),
-    /precios desalineados.*se esperaba voucherPricePerMibRaw=1048576/,
+    /misaligned prices.*expected voucherPricePerMibRaw=1048576/,
   );
 });
