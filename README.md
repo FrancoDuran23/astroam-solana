@@ -6,7 +6,7 @@ Demo for Colosseum / Superteam Argentina. Deadline: Sunday 11 October 2026, 23:5
 
 ## Video pitch
 
-https://github.com/user-attachments/assets/138192e6-7086-4dc6-8f38-9438cfea96cb
+https://github.com/user-attachments/assets/f79af952-9a4e-40a4-a20b-51a79763d7ce
 
 [`docs/demo/AstroAm-pitch-EN.mp4`](docs/demo/AstroAm-pitch-EN.mp4) (2:00). The animation is rendered from [`docs/demo/promo`](docs/demo/promo/README.md).
 
@@ -473,7 +473,6 @@ Left out of both sides: the $1.75 issue fee, and the card's 30% percepción. Thi
 | Budget assistant | Rules in the app (daily limit, 20% warning). No model is called. |
 | Smart plan selection | Planned onboarding. Not implemented. The comparison is under [Smart plan selection](#smart-plan-selection-planned). |
 | Sales channels | Planned. No QR, referral, creator, or wallet deal is live. See [Go-to-market / Sales channels](#go-to-market--sales-channels). |
-| Demo video | [`docs/demo/AstroAm-demo-EN.mp4`](docs/demo/AstroAm-demo-EN.mp4) is an older recording. Its picture still says things this README no longer claims. It was not re-recorded: this environment has no Phantom extension and no funded traveler wallet. |
 
 ## Roadmap
 
