@@ -330,7 +330,7 @@ Phantom or Solflare on **Devnet**, with an account that is not your deployer: SO
 
 ## Automatic fund flow
 
-Decision: [`docs/decisiones/automatizar-flujo-fondos-citrus-bridge.md`](docs/decisiones/automatizar-flujo-fondos-citrus-bridge.md). The traveler signs **once**, the deposit. After that:
+Decision: [`docs/decisions/automate-fund-flow-citrus-bridge.md`](docs/decisions/automate-fund-flow-citrus-bridge.md). The traveler signs **once**, the deposit. After that:
 
 | Step | Who | What it does |
 |---|---|---|
@@ -351,7 +351,7 @@ Without those variables the API cannot sign a voucher. The old program still rej
 
 Still not in the code: open the Bridge account and create the liquidation address, set the card and auto-reload on the eSIM provider, and try the loop with a real eSIM. The meter-key program is already on devnet (above). If `solana program deploy` says the program account is too small, `solana program extend <program id> <bytes>` grows it.
 
-What the eSIM provider allows, the architecture that results from it, and the options for the collected money: [docs/decisiones/fund-flow-architecture.md](docs/decisiones/fund-flow-architecture.md).
+What the eSIM provider allows, the architecture that results from it, and the options for the collected money: [docs/decisions/fund-flow-architecture.md](docs/decisions/fund-flow-architecture.md).
 
 ## Go-to-market and validation
 
@@ -480,7 +480,7 @@ Left out of both sides: the $1.75 issue fee, and the card's 30% percepción. Thi
 2. Move the upgrade authority and the payee to a 2-of-3 Squads multisig. Owner: Ignacio, who holds the deployer key. What that changes, and what is still trusted today: [Custody and trust model](#custody-and-trust-model).
 3. Return the escrow and vault rent to the traveler at `close`.
 4. Legal review of the draft terms, including the refund rule and the Argentine right of withdrawal (botón de arrepentimiento), then publish a contact for that request.
-5. Bridge liquidation address for collected USDC, only after the provider account exists. See `docs/decisiones/automatizar-flujo-fondos-citrus-bridge.md`.
+5. Bridge liquidation address for collected USDC, only after the provider account exists. See `docs/decisions/automate-fund-flow-citrus-bridge.md`.
 6. **Direct wholesale supply, as volume grows.** Planned. No extra supplier is signed. The model already in the code scales as it is: `CONNECTIVITY_PROVIDER` is pluggable, any wholesale eSIM API can sit behind it, and the escrow, the meter, and the refund do not depend on which supplier that is. Once the company entity exists and volume justifies it, add direct wholesale eSIM platforms (multi-network wholesalers with APIs) and, later, carrier agreements in the launch corridor (Chile, Brazil, Uruguay, Paraguay, Bolivia), and route each traveler to the cheapest supplier for that country and network. A lower cost per GB leaves room to lower the traveler price or to fund the agency referral fee, and a second supplier keeps a route covered.
 
 ## Checks

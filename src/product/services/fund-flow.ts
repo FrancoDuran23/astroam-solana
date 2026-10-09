@@ -1,4 +1,4 @@
-// Rules of the automatic fund flow (docs/decisiones/automatizar-flujo-fondos-citrus-bridge.md).
+// Rules of the automatic fund flow (docs/decisions/automate-fund-flow-citrus-bridge.md).
 //
 // AstroAm advances USD to the eSIM and collects USDC from the escrow. Two
 // rules keep what it can lose at one tranche:
