@@ -64,7 +64,7 @@ async function withHooks(
   }
 }
 
-test("webhook válido (firma correcta) → 200 processed; vuelve a enviar el mismo id → 200 duplicate", async () => {
+test("valid webhook (correct signature) → 200 processed; the same id sent again → 200 duplicate", async () => {
   await withHooks(async (baseUrl) => {
     const body = JSON.stringify({
       id: "evt-1",
@@ -83,7 +83,7 @@ test("webhook válido (firma correcta) → 200 processed; vuelve a enviar el mis
   });
 });
 
-test("firma inválida o ausente → 401 sin procesar", async () => {
+test("invalid or missing signature → 401, not processed", async () => {
   await withHooks(async (baseUrl) => {
     const body = JSON.stringify({ id: "evt-2", event: "esim.defunded", created_at: "x", data: {} });
     const bad = await fetch(`${baseUrl}/citrus/webhooks`, {
@@ -102,7 +102,7 @@ test("firma inválida o ausente → 401 sin procesar", async () => {
   });
 });
 
-test("body malformado con firma correcta → 200 (log, nunca un loop de redelivery)", async () => {
+test("malformed body with a correct signature → 200 (logged, never a redelivery loop)", async () => {
   await withHooks(async (baseUrl) => {
     const body = JSON.stringify({ whatever: true });
     const response = await fetch(`${baseUrl}/citrus/webhooks`, {
@@ -115,7 +115,7 @@ test("body malformado con firma correcta → 200 (log, nunca un loop de redelive
   });
 });
 
-test("esim.defunded: el webhook estampa el asentamiento en la store vía HTTP completo", async () => {
+test("esim.defunded: the webhook stamps the settlement in the store through full HTTP", async () => {
   await withHooks(async (baseUrl, store) => {
     const now = new Date().toISOString();
     const iccid = "HTTP-FUND-1";
@@ -139,7 +139,7 @@ test("esim.defunded: el webhook estampa el asentamiento en la store vía HTTP co
   });
 });
 
-test("las otras rutas siguen intactas con express.json() (el raw del webhook no las afecta)", async () => {
+test("the other routes stay intact with express.json() (the webhook's raw body does not affect them)", async () => {
   await withHooks(async (baseUrl) => {
     const health = await fetch(`${baseUrl}/health`);
     assert.equal(health.status, 200);

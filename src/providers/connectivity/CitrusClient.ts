@@ -175,7 +175,7 @@ export class CitrusClient {
   private parseEsim(data: Record<string, unknown>): CitrusEsim {
     const iccid = typeof data.iccid === "string" ? data.iccid : "";
     if (iccid === "") {
-      throw new CitrusApiError(0, "MALFORMED_RESPONSE", "la respuesta no trajo iccid", { retryable: false });
+      throw new CitrusApiError(0, "MALFORMED_RESPONSE", "the response carried no iccid", { retryable: false });
     }
     const status = parseEsimStatus(data.status);
     return {

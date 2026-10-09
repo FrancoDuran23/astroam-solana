@@ -57,7 +57,7 @@ function makeClient(spec: HttpSpec, over: Partial<CitrusClientOptions> = {}): {
     apiKey: "rsk_test_0123456789",
     baseUrl: API_BASE,
     httpClient: http,
-    sleep: async () => {}, // los reintentos nunca esperan en un timer real
+    sleep: async () => {}, // retries never wait on a real timer
     ...over,
   });
   return { client: citrus, calls };
@@ -90,7 +90,7 @@ function transportError(code: string): AxiosError {
   return new AxiosError("network bricked", code);
 }
 
-test("provision: envía end_user_reference y parsea el eSIM (R4)", async () => {
+test("provision: sends end_user_reference and parses the eSIM (R4)", async () => {
   const { client, calls } = makeClient({ post: () => esimBody() });
   const esim = await client.provision({ endUserReference: "user-1", label: "trip" });
   const call = calls.post[0]!;
@@ -101,14 +101,14 @@ test("provision: envía end_user_reference y parsea el eSIM (R4)", async () => {
   assert.equal(esim.walletBalanceUsd, 3.33);
 });
 
-test("detail: lee wallet + charged (U2) y parsea", async () => {
+test("detail: reads wallet + charged (U2) and parses", async () => {
   const { client, calls } = makeClient({ get: () => esimBody() });
   const esim = await client.detail("895999000000000000");
   assert.equal(calls.get[0]!.url, `${API_BASE}/esim/895999000000000000`);
   assert.equal(esim.totalDataChargedUsd, 1.0);
 });
 
-test("429 es reintentable (hasta 4 intentos) y ganó un Retry-After", async () => {
+test("429 is retryable (up to 4 attempts) and a Retry-After wins", async () => {
   let tries = 0;
   const { client, calls } = makeClient({
     get: () => {
@@ -122,7 +122,7 @@ test("429 es reintentable (hasta 4 intentos) y ganó un Retry-After", async () =
   assert.equal(tries, 3);
 });
 
-test("el error 429 final (sin éxito) lleva retryAfterSeconds y es CitrusRateLimitedError", async () => {
+test("the final 429 error (no success) carries retryAfterSeconds and is a CitrusRateLimitedError", async () => {
   const { client } = makeClient({ get: () => { throw apiError(429, "RATE_LIMITED", { "retry-after": "5" }); } });
   await assert.rejects(client.detail("x"), (error: unknown) => {
     assert.equal(error instanceof CitrusRateLimitedError, true);
@@ -133,7 +133,7 @@ test("el error 429 final (sin éxito) lleva retryAfterSeconds y es CitrusRateLim
   });
 });
 
-test("502 y 503 son reintentables", async () => {
+test("502 and 503 are retryable", async () => {
   for (const status of [502, 503]) {
     let tries = 0;
     const { client } = makeClient({
@@ -149,7 +149,7 @@ test("502 y 503 son reintentables", async () => {
   }
 });
 
-test("400/401/404/409 NO son reintentables: fallan con 1 solo intento", async () => {
+test("400/401/404/409 are NOT retryable: they fail with a single attempt", async () => {
   for (const status of [400, 401, 404, 409]) {
     let tries = 0;
     const { client } = makeClient({
@@ -168,7 +168,7 @@ test("400/401/404/409 NO son reintentables: fallan con 1 solo intento", async ()
   }
 });
 
-test("402 INSUFFICIENT_BALANCE → CitrusResellerBalanceError (alerta operacional, no reintenta)", async () => {
+test("402 INSUFFICIENT_BALANCE → CitrusResellerBalanceError (operational alert, not retried)", async () => {
   let tries = 0;
   const { client } = makeClient({
     get: () => {
@@ -184,7 +184,7 @@ test("402 INSUFFICIENT_BALANCE → CitrusResellerBalanceError (alerta operaciona
   assert.equal(tries, 1);
 });
 
-test("un error de transporte (red caída) se mapea a reintentable y agota sus intentos", async () => {
+test("a transport error (network down) maps to retryable and uses up its attempts", async () => {
   let tries = 0;
   const { client } = makeClient({
     get: () => {
@@ -199,7 +199,7 @@ test("un error de transporte (red caída) se mapea a reintentable y agota sus in
   assert.equal(tries, 4);
 });
 
-test("fund NO se reintenta: un 503 falla con 1 solo intento (R5 — un retry ciego duplicaría)", async () => {
+test("fund is NOT retried: a 503 fails with a single attempt (R5: a blind retry would duplicate)", async () => {
   let tries = 0;
   const { client } = makeClient({
     post: () => {
@@ -211,7 +211,7 @@ test("fund NO se reintenta: un 503 falla con 1 solo intento (R5 — un retry cie
   assert.equal(tries, 1);
 });
 
-test("provision (chargeable, $1.75) tampoco se reintenta", async () => {
+test("provision (chargeable, $1.75) is not retried either", async () => {
   let tries = 0;
   const { client } = makeClient({
     post: () => {
@@ -223,7 +223,7 @@ test("provision (chargeable, $1.75) tampoco se reintenta", async () => {
   assert.equal(tries, 1);
 });
 
-test("defund: parsea la 202 y aplica defaults al 202 asumido (settles_in_minutes=15)", async () => {
+test("defund: parses the 202 and applies defaults to the assumed 202 (settles_in_minutes=15)", async () => {
   const { client } = makeClient({
     post: (url) => (url.includes("/defund") ? { settles_in_minutes: 20, estimated_return_usd: 2.5 } : {}),
   });
@@ -237,7 +237,7 @@ test("defund: parsea la 202 y aplica defaults al 202 asumido (settles_in_minutes
   assert.equal(defaults.estimatedReturnUsd, 0);
 });
 
-test("una respuesta malformada sin iccid lanza CitrusApiError no reintentable", async () => {
+test("a malformed response without iccid throws a non-retryable CitrusApiError", async () => {
   const { client } = makeClient({ post: () => ({ id: "esim_1" }) });
   await assert.rejects(client.provision({ endUserReference: "u" }), (error: unknown) => {
     assert.equal(error instanceof CitrusApiError, true);

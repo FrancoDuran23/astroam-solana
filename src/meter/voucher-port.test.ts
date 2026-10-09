@@ -13,7 +13,7 @@ import { buildUnsigned, message1Schema, type Message1, type Message2 } from "../
 const NETWORK = "monad:testnet" as const;
 const CHANNEL = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
 const GATEWAY_TOKEN = "meter-test-gateway-token";
-const PRICE_PER_MIB_RAW = 1_048_576n; // 1 raw por byte: montos fáciles de leer
+const PRICE_PER_MIB_RAW = 1_048_576n; // 1 raw per byte: amounts that are easy to read
 
 function m1(cumulativeBytes: number, overrides: Partial<Message1> = {}): Message1 {
   return {
@@ -48,7 +48,7 @@ const noSleep = async () => {};
 
 // --- buildMessage1 ----------------------------------------------------------
 
-test("buildMessage1: arma un M1 válido con el monto de la función compartida (ceilDiv por MiB)", () => {
+test("buildMessage1: builds a valid M1 with the amount from the shared function (ceilDiv per MiB)", () => {
   const message = buildMessage1({
     sessionId: "sess_1",
     channel: CHANNEL,
@@ -66,7 +66,7 @@ test("buildMessage1: arma un M1 válido con el monto de la función compartida (
   assert.equal(message.observedAt, "2026-09-23T12:00:00.000Z");
 });
 
-test("createHttpVoucherPort: envía POST con X-Gateway-Token y el M1 como JSON", async () => {
+test("createHttpVoucherPort: sends POST with X-Gateway-Token and the M1 as JSON", async () => {
   let captured: { url: string; init: RequestInit | undefined } | undefined;
   const fakeFetch: typeof fetch = async (input, init) => {
     captured = { url: String(input), init };
@@ -84,20 +84,20 @@ test("createHttpVoucherPort: envía POST con X-Gateway-Token y el M1 como JSON",
   assert.equal(headers["content-type"], "application/json");
   assert.deepEqual(JSON.parse(String(captured.init?.body)), reading);
 
-  // 503 con sobre M2 válido: se devuelve tal cual, retryable explícito
+  // 503 with a valid M2 envelope: returned as is, explicit retryable
   assert.equal(result.status, "unsigned");
   if (result.status !== "unsigned") return;
   assert.equal(result.reason, "upstream_unavailable");
   assert.equal(result.retryable, true);
 });
 
-test("createHttpVoucherPort: mapea respuestas no-M2 a VoucherTransportError con retryable correcto", async () => {
+test("createHttpVoucherPort: maps non-M2 responses to VoucherTransportError with the right retryable", async () => {
   const cases: Array<{ name: string; response: () => Response; retryable: boolean; status?: number }> = [
     { name: "400 schema", response: () => jsonResponse(400, { error: "invalid message1 body" }), retryable: false, status: 400 },
     { name: "401 token", response: () => jsonResponse(401, { error: "missing" }), retryable: false, status: 401 },
     { name: "404", response: () => jsonResponse(404, { error: "not found" }), retryable: false, status: 404 },
-    { name: "200 sin M2", response: () => jsonResponse(200, { ok: true }), retryable: false, status: 200 },
-    { name: "503 sin M2 (proxy)", response: () => new Response("Service Unavailable", { status: 503 }), retryable: true, status: 503 },
+    { name: "200 without M2", response: () => jsonResponse(200, { ok: true }), retryable: false, status: 200 },
+    { name: "503 without M2 (proxy)", response: () => new Response("Service Unavailable", { status: 503 }), retryable: true, status: 503 },
     { name: "502 gateway", response: () => new Response("Bad Gateway", { status: 502 }), retryable: true, status: 502 },
   ];
   for (const c of cases) {
@@ -115,7 +115,7 @@ test("createHttpVoucherPort: mapea respuestas no-M2 a VoucherTransportError con 
   }
 });
 
-test("createHttpVoucherPort: error de red → VoucherTransportError reintentable", async () => {
+test("createHttpVoucherPort: network error → retryable VoucherTransportError", async () => {
   const port = createHttpVoucherPort({
     url: "http://agent.test/vouchers",
     gatewayToken: GATEWAY_TOKEN,
@@ -129,7 +129,7 @@ test("createHttpVoucherPort: error de red → VoucherTransportError reintentable
   );
 });
 
-test("createHttpVoucherPort: un M1 inválido falla antes de salir a la red (no reintentable)", async () => {
+test("createHttpVoucherPort: an invalid M1 fails before reaching the network (not retryable)", async () => {
   let fetchCalls = 0;
   const port = createHttpVoucherPort({
     url: "http://agent.test/vouchers",
@@ -161,7 +161,7 @@ function scriptedPort(steps: Array<Message2 | Error>): VoucherPort & { calls: nu
   return port;
 }
 
-test("withVoucherRetry: reintenta un M2 retryable hasta obtener el vale firmado", async () => {
+test("withVoucherRetry: retries a retryable M2 until it gets the signed voucher", async () => {
   const signed = await createInMemoryVoucherPort({ depositRaw: 10_000_000n }).requestVoucher(m1(1_000_000));
   const inner = scriptedPort([unsigned("upstream_unavailable"), unsigned("signer_unavailable"), signed]);
   const result = await withVoucherRetry(inner, { sleep: noSleep }).requestVoucher(m1(1_000_000));
@@ -169,7 +169,7 @@ test("withVoucherRetry: reintenta un M2 retryable hasta obtener el vale firmado"
   assert.equal(inner.calls, 3);
 });
 
-test("withVoucherRetry: NUNCA reintenta un M2 no reintentable", async () => {
+test("withVoucherRetry: NEVER retries a non-retryable M2", async () => {
   const inner = scriptedPort([unsigned("channel_exhausted"), unsigned("upstream_unavailable")]);
   const result = await withVoucherRetry(inner, { sleep: noSleep }).requestVoucher(m1(1_000_000));
   assert.equal(result.status, "unsigned");
@@ -178,7 +178,7 @@ test("withVoucherRetry: NUNCA reintenta un M2 no reintentable", async () => {
   assert.equal(inner.calls, 1);
 });
 
-test("withVoucherRetry: agotados los intentos devuelve el último M2 reintentable", async () => {
+test("withVoucherRetry: once the attempts run out it returns the last retryable M2", async () => {
   const inner = scriptedPort([unsigned("internal_error")]);
   const result = await withVoucherRetry(inner, { sleep: noSleep, maxAttempts: 3 }).requestVoucher(m1(1_000_000));
   assert.equal(result.status, "unsigned");
@@ -188,7 +188,7 @@ test("withVoucherRetry: agotados los intentos devuelve el último M2 reintentabl
   assert.equal(inner.calls, 3);
 });
 
-test("withVoucherRetry: reintenta fallas de transporte reintentables, no las de configuración", async () => {
+test("withVoucherRetry: retries retryable transport failures, not configuration ones", async () => {
   const signed = await createInMemoryVoucherPort({ depositRaw: 10_000_000n }).requestVoucher(m1(1_000_000));
   const flaky = scriptedPort([new VoucherTransportError("ECONNRESET", { retryable: true }), signed]);
   const ok = await withVoucherRetry(flaky, { sleep: noSleep }).requestVoucher(m1(1_000_000));
@@ -203,7 +203,7 @@ test("withVoucherRetry: reintenta fallas de transporte reintentables, no las de 
   assert.equal(misconfigured.calls, 1);
 });
 
-test("withVoucherRetry: el deadline corta y devuelve el último M2 reintentable visto", async () => {
+test("withVoucherRetry: the deadline cuts in and returns the last retryable M2 seen", async () => {
   let clock = 0;
   const inner = scriptedPort([unsigned("upstream_unavailable")]);
   const result = await withVoucherRetry(inner, {
@@ -217,12 +217,12 @@ test("withVoucherRetry: el deadline corta y devuelve el último M2 reintentable 
   assert.equal(result.status, "unsigned");
   if (result.status !== "unsigned") return;
   assert.equal(result.reason, "upstream_unavailable");
-  assert.ok(inner.calls < 4, `debe cortar antes de agotar los 4 intentos (hizo ${inner.calls})`);
+  assert.ok(inner.calls < 4, `must cut before using up the 4 attempts (made ${inner.calls})`);
 });
 
 // --- createInMemoryVoucherPort ---------------------------------------------------
 
-test("createInMemoryVoucherPort: firma, reusa, rechaza stale y agota contra el depósito", async () => {
+test("createInMemoryVoucherPort: signs, reuses, rejects stale and exhausts against the deposit", async () => {
   const port = createInMemoryVoucherPort({ depositRaw: 3_000_000n });
 
   const first = await port.requestVoucher(m1(2_000_000));

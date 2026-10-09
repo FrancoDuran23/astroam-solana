@@ -60,7 +60,7 @@ export class CitrusTerminateWithBalanceError extends Error {
 
   constructor(iccid: string, walletMicroUsd: bigint) {
     super(
-      `no se puede terminar la eSIM ${iccid}: la wallet aún tiene ${walletMicroUsd} micro-USD — defund primero`,
+      `cannot terminate eSIM ${iccid}: the wallet still has ${walletMicroUsd} micro-USD; defund first`,
     );
     this.name = "CitrusTerminateWithBalanceError";
     this.iccid = iccid;
@@ -109,5 +109,5 @@ function bodyDetail(body: unknown): string | undefined {
 
 function defaultDetail(code: string | undefined): string | undefined {
   if (code === undefined) return undefined;
-  return `error del proveedor ${code}`;
+  return `provider error ${code}`;
 }

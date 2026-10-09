@@ -68,7 +68,7 @@ export type SessionCloserOptions = {
   pollIntervalMs?: number;
   /** CITRUS_DEFUND_STABLE_WINDOW_MS — `walletMicroUsd === 0n` sustained this
    * long is taken as "defund settled" when no `esim.defunded` webhook arrived
-   * (spec §12.3: el fin del defund no está documentado en la API). */
+   * (spec §12.3: the end of the defund is not documented in the API). */
   stableWindowMs?: number;
   logger?: (line: unknown) => void;
   now?: () => Date;
@@ -163,7 +163,7 @@ export class SessionCloser {
           iccid: row.iccid,
           detail: messageOf(error),
         });
-        return { step: "defund_solicitado", detail: `defund falló, se reintenta: ${messageOf(error)}` };
+        return { step: "defund_solicitado", detail: `defund failed, retrying: ${messageOf(error)}` };
       }
     }
     // `refundUnused` persisted the 202 metadata + defundPending (real provider);
@@ -173,7 +173,7 @@ export class SessionCloser {
       closing: { step: "defund_liquidado", startedAt: r?.closing?.startedAt ?? this.now().toISOString() },
       updatedAt: this.now().toISOString(),
     }));
-    return { step: "defund_liquidado", settled: false, detail: "defund solicitado (202), esperando liquidación" };
+    return { step: "defund_liquidado", settled: false, detail: "defund requested (202), waiting for settlement" };
   }
 
   private async stepEsperarLiquidacion(iccid: string): Promise<SessionCloseResult> {
@@ -196,7 +196,7 @@ export class SessionCloser {
       usage = await this.provider.getUsage(iccid);
     } catch (error) {
       this.logger({ level: "warn", reason: "settle_poll_failed", iccid, detail: messageOf(error) });
-      return { step: "defund_liquidado", settled: false, detail: `lectura de liquidación falló: ${messageOf(error)}` };
+      return { step: "defund_liquidado", settled: false, detail: `settlement reading failed: ${messageOf(error)}` };
     }
 
     if (usage.walletMicroUsd === 0n) {
@@ -209,14 +209,14 @@ export class SessionCloser {
       return {
         step: "defund_liquidado",
         settled: false,
-        detail: `esperando asentamiento del defund (wallet en 0, ventana estable de ${this.stableWindowMs}ms)`,
+        detail: `waiting for the defund to settle (wallet at 0, stable window of ${this.stableWindowMs}ms)`,
       };
     }
     this.walletZeroSince.delete(iccid);
     return {
       step: "defund_liquidado",
       settled: false,
-      detail: `esperando asentamiento del defund (wallet aún ${usage.walletMicroUsd} micro-USD)`,
+      detail: `waiting for the defund to settle (wallet still ${usage.walletMicroUsd} micro-USD)`,
     };
   }
 
@@ -253,7 +253,7 @@ export class SessionCloser {
       usage = await this.provider.getUsage(iccid);
     } catch (error) {
       this.logger({ level: "warn", reason: "final_usage_failed", iccid, detail: messageOf(error) });
-      return { step: "ultimo_vale_firmado", voucherKind: "unavailable", detail: `lectura final falló: ${messageOf(error)}` };
+      return { step: "ultimo_vale_firmado", voucherKind: "unavailable", detail: `final reading failed: ${messageOf(error)}` };
     }
 
     const chargedSession = usage.chargedMicroUsd - row.chargedBaselineMicroUsd;
@@ -268,7 +268,7 @@ export class SessionCloser {
         return {
           step: "ultimo_vale_firmado",
           voucherKind: "unavailable",
-          detail: `checkpoint del escrow falló, se reintenta: ${messageOf(error)}`,
+          detail: `escrow checkpoint failed, retrying: ${messageOf(error)}`,
         };
       }
     }
@@ -282,7 +282,7 @@ export class SessionCloser {
       voucher = result.voucher;
     } catch (error) {
       this.logger({ level: "warn", reason: "final_voucher_failed", iccid, detail: messageOf(error) });
-      return { step: "ultimo_vale_firmado", voucherKind: "unavailable", detail: `último vale falló: ${messageOf(error)}` };
+      return { step: "ultimo_vale_firmado", voucherKind: "unavailable", detail: `final voucher failed: ${messageOf(error)}` };
     }
 
     this.logger({
@@ -299,7 +299,7 @@ export class SessionCloser {
       closing: { step: "canal_cerrado", startedAt: r?.closing?.startedAt ?? this.now().toISOString() },
       updatedAt: this.now().toISOString(),
     }));
-    return { step: "canal_cerrado", closeKind: "nothing_to_close", detail: "último vale pedido; cerrando canal" };
+    return { step: "canal_cerrado", closeKind: "nothing_to_close", detail: "final voucher requested; closing channel" };
   }
 
   private async stepCerrar(iccid: string): Promise<SessionCloseResult> {
@@ -309,7 +309,7 @@ export class SessionCloser {
     if (row.channelId === "") {
       // Fake/demo path (no channel ever opened): nothing to settle — the walk
       // still ends so the eSIM returns to idle.
-      return this.finalize(iccid, "nothing_to_close", "sin canal (demo), cierre omitido");
+      return this.finalize(iccid, "nothing_to_close", "no channel (demo), close skipped");
     }
 
     const outcome = await this.closeChannel(row.channelId);
@@ -318,7 +318,7 @@ export class SessionCloser {
     }
     // blocked/failed: keep the step so the operator retries on a later run.
     this.logger({ level: "error", reason: "channel_close_failed", iccid, outcome });
-    return { step: "canal_cerrado", closeKind: outcome.kind, detail: `cierre del canal falló: ${outcome.detail}` };
+    return { step: "canal_cerrado", closeKind: outcome.kind, detail: `channel close failed: ${outcome.detail}` };
   }
 
   private async finalize(iccid: string, closeKind: CloseOutcome["kind"], detail: string): Promise<SessionCloseResult> {

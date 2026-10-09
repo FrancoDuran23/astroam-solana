@@ -14,7 +14,7 @@ function tempLogPath(): string {
   return path.join(fs.mkdtempSync(path.join(os.tmpdir(), "webhook-event-log-")), "events.jsonl");
 }
 
-test("record persiste la línea con fsync ANTES de devolver (R10) y el id queda en seen", () => {
+test("record persists the line with fsync BEFORE returning (R10) and the id stays in seen", () => {
   const logPath = tempLogPath();
   const log = WebhookEventLog.open(logPath);
   const record = log.record({
@@ -31,7 +31,7 @@ test("record persiste la línea con fsync ANTES de devolver (R10) y el id queda 
   assert.equal(onDisk.endsWith("\n"), true);
 });
 
-test("la dedup sobrevive a un reinicio: id ya visto en una sesión previa", () => {
+test("dedup survives a restart: an id already seen in a previous session", () => {
   const logPath = tempLogPath();
   const first = WebhookEventLog.open(logPath);
   first.record({ id: "evt-dup", event: "esim.defunded", createdAt: "x", payload: {} });
@@ -40,7 +40,7 @@ test("la dedup sobrevive a un reinicio: id ya visto en una sesión previa", () =
   assert.equal(reopened.get("evt-dup")?.event, "esim.defunded");
 });
 
-test("unprocessed() devuelve lo no marcado; markProcessed lo limpia de forma durable", () => {
+test("unprocessed() returns what is not marked; markProcessed clears it durably", () => {
   const logPath = tempLogPath();
   const log = WebhookEventLog.open(logPath);
   log.record({ id: "evt-a", event: "a", createdAt: "x", payload: {} });
@@ -50,13 +50,13 @@ test("unprocessed() devuelve lo no marcado; markProcessed lo limpia de forma dur
   log.markProcessed("evt-a");
   assert.deepEqual(log.unprocessed().map((r) => r.id), ["evt-b"]);
 
-  // Durabilidad: reabrir no revive el ya procesado.
+  // Durability: reopening does not revive the one already processed.
   const reopened = WebhookEventLog.open(logPath);
   assert.deepEqual(reopened.unprocessed().map((r) => r.id), ["evt-b"]);
   assert.equal(reopened.seen("evt-a"), true);
 });
 
-test("markProcessed de un id desconocido no revienta (loop seguro)", () => {
+test("markProcessed of an unknown id does not crash (safe loop)", () => {
   const logPath = tempLogPath();
   const log = WebhookEventLog.open(logPath);
   log.record({ id: "evt-x", event: "x", createdAt: "x", payload: {} });
@@ -64,7 +64,7 @@ test("markProcessed de un id desconocido no revienta (loop seguro)", () => {
   assert.deepEqual(log.unprocessed().map((r) => r.id), ["evt-x"]);
 });
 
-test("una línea corrupta (crash a mitad de append) se descarta; las válidas antes/después siguen", () => {
+test("a corrupt line (crash halfway through an append) is discarded; the valid ones before/after remain", () => {
   const logPath = tempLogPath();
   const log = WebhookEventLog.open(logPath);
   log.record({ id: "evt-1", event: "a", createdAt: "x", payload: {} });
@@ -77,7 +77,7 @@ test("una línea corrupta (crash a mitad de append) se descarta; las válidas an
   assert.equal(reopened.get(" evt-truncado") , undefined);
 });
 
-test("un registro inválido estructuralmente (schema) no entra a la dedup", () => {
+test("a structurally invalid record (schema) does not enter the dedup", () => {
   const logPath = tempLogPath();
   fs.writeFileSync(logPath, JSON.stringify({ v: 1, id: "x" }) + "\n");
   const log = WebhookEventLog.open(logPath);

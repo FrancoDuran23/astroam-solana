@@ -96,7 +96,7 @@ export async function runReconciliation(
     expectedWalletMicroUsd: expectedWalletMicroUsd.toString(),
     driftMicroUsd: driftMicroUsd.toString(),
     note:
-      "Cargado del viaje vs fondeado de la wallet, y deriva modelo-vs-proveedor; se loguea, nunca se factura.",
+      "Trip charged vs wallet funded, and model-vs-provider drift; it is logged, never billed.",
   });
 
   return {

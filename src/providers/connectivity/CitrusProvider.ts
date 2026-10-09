@@ -82,7 +82,7 @@ export class CitrusProvider implements ConnectivityProvider {
     const amountUsd = amountCents / 100;
     if (!Number.isSafeInteger(amountCents) || amountUsd <= 0 || amountUsd > 10_000) {
       throw new RangeError(
-        `CitrusProvider topUp: amountCents debe estar entre 1 y 1_000_000 centavos, recibí ${amountCents}`,
+        `CitrusProvider topUp: amountCents must be between 1 and 1_000_000 cents, got ${amountCents}`,
       );
     }
     await this.client.fund(iccid, amountUsd);
@@ -134,7 +134,7 @@ export class CitrusProvider implements ConnectivityProvider {
     }
     const current = this.esimStore.get(iccid);
     if (current !== undefined && current.defundPending) {
-      throw new Error(`CitrusProvider terminate: la eSIM ${iccid} tiene un defund sin liquidar`);
+      throw new Error(`CitrusProvider terminate: eSIM ${iccid} has an unsettled defund`);
     }
     await this.client.terminate(iccid);
     await this.esimStore.update(iccid, (row) => ({

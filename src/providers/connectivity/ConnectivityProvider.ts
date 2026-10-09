@@ -1,4 +1,4 @@
-// Connectivity provider seam (connectivity layer, "escalón conectividad").
+// Connectivity provider seam (connectivity layer).
 // One interface, several possible backends (Citrus today, a fake for
 // tests/demos, a dry-run fake). Mirrors the repo's port pattern: business
 // code (PolicyEnforcer, meter, FundingService, SessionCloser) depends on this

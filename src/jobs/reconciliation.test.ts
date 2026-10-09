@@ -64,7 +64,7 @@ test("runReconciliation computes tripCharged from charged − baseline and the w
   assert.equal(s.chargedMicroUsd, 2_600_000n, "session refreshes the lifetime charge");
 
   const log = lines.find((l) => (l as { reason?: string }).reason === "reconciliation_diff");
-  assert.ok(log, "se emite el diff informativo");
+  assert.ok(log, "the informational diff is emitted");
 });
 
 test("runReconciliation reports drift when the provider wallet deviates from the model", async () => {
@@ -133,5 +133,5 @@ test("runReconciliation never throws on provider error and recomputes from the s
   const log = lines.find(
     (l) => (l as { reason?: string }).reason === "reconciliation_usage_unavailable",
   );
-  assert.ok(log, "el fallo se loguea sin reventar la cadena");
+  assert.ok(log, "the failure is logged without breaking the chain");
 });

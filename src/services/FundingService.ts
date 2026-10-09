@@ -6,7 +6,7 @@
 // (`row.fundedMicroUsd`), in whole cents. Invariant I2: funded × MARKUP ≤
 // deposit, in every branch below.
 //
-// Crash/timeout handling (the spec's "en lugar de reintentar"): the fund is
+// Crash/timeout handling (the spec's "instead of retrying"): the fund is
 // NEVER blindly retried. Before `POST /fund` the row persists `pendingFund`
 // (with the wallet value read just before); after a timeout or restart,
 // `ensureFunded` reconciles with `getUsage()` instead — if the wallet grew by
@@ -109,7 +109,7 @@ export class FundingService {
           reason: "fund_intent_dropped",
           iccid,
           amountCents: pending.amountCents,
-          note: "pendingFund sin confirmar se reconcilió contra el wallet y no aterrizó",
+          note: "unconfirmed pendingFund was reconciled against the wallet and did not land",
         });
       }
     }

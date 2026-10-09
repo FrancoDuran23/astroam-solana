@@ -50,9 +50,9 @@ export type ChannelBalancePort = {
 export const STUB_CHANNEL_BALANCE_PORT: ChannelBalancePort = {
   async getChannelBalance(_channelId: string): Promise<bigint> {
     throw new Error(
-      "getChannelBalance STUB: conectar contra el riel de pago de la cadena " +
-      "(PaymentRail.getChannelDepositRaw) — se espera el depósito acumulado " +
-      "del canal en raw units.",
+      "getChannelBalance STUB: wire it to the chain's payment rail " +
+      "(PaymentRail.getChannelDepositRaw); the channel's cumulative deposit " +
+      "in raw units is expected.",
     );
   },
 };
@@ -63,7 +63,7 @@ export type Logger = (line: unknown) => void;
  * raw units per MB. Ceiling division keeps a full session's rounding bounded. */
 export function computeCostRaw(meteredBytes: bigint, pricePerMbRaw: bigint): bigint {
   if (pricePerMbRaw <= 0n) {
-    throw new RangeError("computeCostRaw: pricePerMbRaw debe ser positivo");
+    throw new RangeError("computeCostRaw: pricePerMbRaw must be positive");
   }
   return ceilDiv(meteredBytes * pricePerMbRaw, BYTES_PER_MB);
 }
@@ -84,13 +84,13 @@ export type EnforcementAction =
 
 export function decidePolicy(input: DecideInput): EnforcementAction {
   if (input.pricePerMbRaw <= 0n) {
-    throw new RangeError("decidePolicy: pricePerMbRaw debe ser positivo");
+    throw new RangeError("decidePolicy: pricePerMbRaw must be positive");
   }
   const remainingRaw = input.balanceRaw - input.costRaw < 0n ? 0n : input.balanceRaw - input.costRaw;
 
   // Remaining ≈ 0: the balance cannot cover the accrued cost at all.
   if (remainingRaw === 0n) {
-    return { kind: "suspend", remainingRaw, reason: "saldo del canal agotado (remaining == 0)" };
+    return { kind: "suspend", remainingRaw, reason: "channel balance exhausted (remaining == 0)" };
   }
 
   // The price is known positive (enforced upstream); the whole MB this balance
@@ -100,7 +100,7 @@ export function decidePolicy(input: DecideInput): EnforcementAction {
     return {
       kind: "suspend",
       remainingRaw,
-      reason: "el saldo restante no alcanza ni para 1 MB",
+      reason: "the remaining balance does not cover even 1 MB",
     };
   }
 
@@ -132,14 +132,14 @@ function readPriceRaw(env: NodeJS.ProcessEnv): bigint {
   const raw = env.PRICE_PER_MB_RAW;
   if (raw === undefined || raw === "") {
     throw new Error(
-      "Falta PRICE_PER_MB_RAW — precio por MB en USDC raw units (1e-7 USDC). " +
-      "Definilo en el .env para que el enforcer pueda decidir cortes.",
+      "PRICE_PER_MB_RAW is missing: the price per MB in USDC raw units (1e-7 USDC). " +
+      "Set it in the .env so the enforcer can decide cut-offs.",
     );
   }
   const parsed = parseNonNegativeIntegerRaw(raw);
   if (parsed === undefined) {
     throw new Error(
-      `PRICE_PER_MB_RAW debe ser un entero no negativo (raw units), recibí "${raw}"`,
+      `PRICE_PER_MB_RAW must be a non-negative integer (raw units), got "${raw}"`,
     );
   }
   return parsed;
