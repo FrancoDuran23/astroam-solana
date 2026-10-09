@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>AstroAm Promo</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Space+Mono:wght@400;700&family=Press+Start+2P&family=Inter:wght@500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#07061a;--violet:#5B3DF5;--violet2:#7B5CFF;--lav:#B9A6FF;--star:#FFC93C;--cyan:#2FD0DD;--ink:#F1EEFF;--mut:#A9A5CC;--red:#ff5d6e;--green:#3ee08f}
+*{box-sizing:border-box}
+html,body{margin:0;width:1280px;height:720px;overflow:hidden;background:var(--bg);color:var(--ink);font-family:Inter,system-ui,sans-serif}
+#stage{position:relative;width:1280px;height:720px;overflow:hidden;
+  background:radial-gradient(ellipse at 50% 30%,#22165f 0%,#0d0a2c 50%,#03030b 100%)}
+.stars{position:absolute;inset:-20%;pointer-events:none}
+.stars.a{background-image:radial-gradient(1.6px 1.6px at 12% 22%,#fff 50%,transparent),radial-gradient(1px 1px at 68% 14%,#fff 50%,transparent),radial-gradient(1.2px 1.2px at 38% 78%,#cfc6ff 50%,transparent),radial-gradient(1.6px 1.6px at 86% 62%,#fff 50%,transparent),radial-gradient(1px 1px at 8% 72%,#fff 50%,transparent),radial-gradient(1px 1px at 52% 46%,#bfb3ff 50%,transparent);background-size:300px 300px;opacity:.6;animation:drift 120s linear infinite}
+.stars.b{background-image:radial-gradient(2px 2px at 30% 40%,#fff 50%,transparent),radial-gradient(1.5px 1.5px at 75% 80%,#FFC93C 50%,transparent),radial-gradient(1.5px 1.5px at 90% 20%,#fff 50%,transparent);background-size:520px 520px;animation:drift 70s linear infinite, twinkle 3s ease-in-out infinite}
+@keyframes drift{to{transform:translate(300px,150px)}}
+@keyframes twinkle{50%{opacity:.35}}
+.planet{position:absolute;width:900px;height:900px;border-radius:50%;left:50%;top:640px;margin-left:-450px;
+  background:radial-gradient(circle at 50% 0%,#3b2a9a 0%,#1a1250 35%,#0a0826 70%);box-shadow:0 -20px 120px rgba(91,61,245,.45);opacity:.9}
+.planet::after{content:"";position:absolute;inset:-2px;border-radius:50%;border-top:2px solid rgba(185,166,255,.55)}
+
+.scene{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;text-align:center;opacity:0;padding:40px 60px}
+.k{font:700 15px 'Space Mono',monospace;letter-spacing:.3em;color:var(--lav);text-transform:uppercase}
+h1{font:700 72px/1.02 'Space Grotesk',sans-serif;letter-spacing:-.03em;margin:0;text-shadow:0 0 34px rgba(91,61,245,.6)}
+h1 .v{color:var(--violet2)} h1 .y{color:var(--star)} h1 .c{color:var(--cyan)}
+h2{font:700 46px/1.08 'Space Grotesk',sans-serif;letter-spacing:-.02em;margin:0}
+h2 .y{color:var(--star)} h2 .v{color:var(--violet2)}
+p.lead{font:500 24px/1.45 Inter,sans-serif;color:#C9C6E8;margin:0;max-width:900px}
+p.lead b{color:var(--star)}
+.pix{font-family:'Press Start 2P',monospace}
+
+/* entrance animations: delays are set from data-at */
+.fu,.fi,.pop,.drop,.sl,.sr{animation-duration:.8s;animation-fill-mode:both;animation-timing-function:cubic-bezier(.2,.7,.2,1)}
+.fu{animation-name:fu}.fi{animation-name:fi}.pop{animation-name:pop;animation-timing-function:cubic-bezier(.3,1.5,.5,1)}
+.drop{animation-name:drop;animation-duration:1.1s;animation-timing-function:cubic-bezier(.3,1.3,.5,1)}
+.sl{animation-name:sl}.sr{animation-name:sr}
+@keyframes fu{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:none}}
+@keyframes fi{from{opacity:0}to{opacity:1}}
+@keyframes pop{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:none}}
+@keyframes drop{from{opacity:0;transform:translateY(-520px)}to{opacity:1;transform:none}}
+@keyframes sl{from{opacity:0;transform:translateX(-80px)}to{opacity:1;transform:none}}
+@keyframes sr{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:none}}
+.float{animation:float 3.2s ease-in-out infinite}
+@keyframes float{50%{transform:translateY(-10px)}}
+.blink{animation:blink 1s steps(2) infinite}
+@keyframes blink{50%{opacity:.2}}
+
+/* mascot */
+.astro{position:relative;display:inline-block}
+.astro svg{display:block;image-rendering:pixelated;filter:drop-shadow(0 0 26px rgba(91,61,245,.55))}
+.hud{position:absolute;left:62%;top:-64px;display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:6px;white-space:nowrap;
+  background:rgba(8,8,24,.9);border:3px solid var(--red);box-shadow:4px 4px 0 rgba(0,0,0,.5);font:400 12px 'Press Start 2P',monospace;color:var(--red)}
+.hud.on{border-color:var(--green);color:var(--green)}
+.bars{display:flex;align-items:flex-end;gap:3px;height:22px}
+.bars i{width:6px;background:#3a3560}
+.bars i:nth-child(1){height:6px}.bars i:nth-child(2){height:11px}.bars i:nth-child(3){height:16px}.bars i:nth-child(4){height:22px}
+.bars i.f{background:var(--green)}
+.hud .x{font-size:14px}
+
+/* cards */
+.row{display:flex;gap:20px;justify-content:center}
+.card{border:2px solid rgba(91,61,245,.6);background:rgba(91,61,245,.13);border-radius:20px;padding:22px 24px;width:260px;text-align:left}
+.card i{font:700 13px 'Space Mono',monospace;color:var(--star);font-style:normal;letter-spacing:.1em}
+.card .t{font:700 23px 'Space Grotesk',sans-serif;margin:8px 0 6px}
+.card small{font-size:16px;color:var(--mut);line-height:1.45;display:block}
+.card.bad{border-color:rgba(255,93,110,.55);background:rgba(255,93,110,.08)} .card.bad i{color:var(--red)}
+.chip{font:700 15px 'Space Mono',monospace;padding:8px 14px;border-radius:999px;border:1px solid rgba(185,166,255,.5);color:var(--lav);background:rgba(91,61,245,.12)}
+.chip.y{color:var(--star);border-color:rgba(255,201,60,.6);background:rgba(255,201,60,.1)}
+.bill{font:700 54px 'Space Grotesk',sans-serif;color:var(--red)}
+.gb{display:flex;gap:10px;margin-top:6px}
+.gb span{font:400 12px 'Press Start 2P',monospace;white-space:nowrap;padding:12px 12px;border:2px solid rgba(185,166,255,.5);border-radius:6px;color:var(--lav)}
+.gb span.q{color:var(--star);border-color:var(--star)}
+.logo{width:560px;filter:drop-shadow(0 0 30px rgba(91,61,245,.55))}
+.ship{width:180px;filter:drop-shadow(0 0 40px rgba(123,92,255,.7))}
+.tag{font:600 30px 'Space Grotesk',sans-serif} .tag b{color:var(--star)}
+
+/* deposit */
+.flow{display:flex;align-items:center;gap:40px;position:relative}
+.node{width:230px;height:200px;border-radius:24px;border:2px solid rgba(91,61,245,.6);background:rgba(91,61,245,.12);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px}
+.node .ic{font-size:54px;line-height:1}
+.node .t{font:700 22px 'Space Grotesk',sans-serif}
+.node small{font:400 14px 'Space Mono',monospace;color:var(--mut)}
+.arrow{width:120px;height:4px;background:repeating-linear-gradient(90deg,var(--lav) 0 10px,transparent 10px 18px);position:relative}
+.coin{position:absolute;top:-18px;left:0;width:36px;height:36px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#6aa8ff,#2775CA);border:3px solid #cfe2ff;
+  font:700 14px 'Space Grotesk';display:flex;align-items:center;justify-content:center;color:#fff;opacity:0;animation:coin 1.4s ease-in-out both}
+@keyframes coin{0%{opacity:0;transform:translateX(-30px)}15%{opacity:1}85%{opacity:1}100%{opacity:0;transform:translateX(130px)}}
+.vault{position:relative}
+.lock{position:absolute;top:-16px;right:-16px;font-size:30px}
+.qr{width:150px;height:150px;image-rendering:pixelated;background:#fff;padding:8px;border-radius:8px}
+
+/* pipeline */
+.pipe{display:flex;align-items:center;gap:0}
+.st{width:200px;padding:18px 14px;border-radius:18px;border:2px solid rgba(91,61,245,.6);background:rgba(91,61,245,.12)}
+.st .ic{font-size:38px} .st .t{font:700 19px 'Space Grotesk',sans-serif;margin-top:6px} .st small{font:400 13px 'Space Mono',monospace;color:var(--mut);display:block;margin-top:4px}
+.ln{width:70px;height:4px;background:rgba(185,166,255,.35);position:relative;overflow:visible}
+.ln b{position:absolute;top:-5px;left:0;width:14px;height:14px;border-radius:50%;background:var(--star);box-shadow:0 0 14px var(--star);animation:pulse 1.6s linear infinite}
+@keyframes pulse{from{left:-7px}to{left:63px}}
+.meter{font:400 18px 'Press Start 2P',monospace;color:var(--cyan)}
+.apps{display:flex;gap:12px}
+.apps span{font-size:30px;padding:10px;border-radius:14px;background:rgba(47,208,221,.12);border:1px solid rgba(47,208,221,.4)}
+
+/* numbers */
+.num{font:700 120px/1 'Space Grotesk',sans-serif;color:var(--star);text-shadow:0 0 44px rgba(255,201,60,.45)}
+.split{width:760px;height:34px;border-radius:999px;background:rgba(255,255,255,.08);display:flex;overflow:hidden;border:2px solid rgba(185,166,255,.35)}
+.split .u{background:var(--violet2);width:6.25%} .split .r{background:linear-gradient(90deg,#FFC93C,#ffe08a);flex:1;transform-origin:left;animation:grow 1.4s ease-out both}
+@keyframes grow{from{transform:scaleX(0)}}
+.legend{display:flex;gap:40px;font:700 18px 'Space Mono',monospace}
+.legend .u{color:var(--lav)} .legend .r{color:var(--star)}
+
+.team{display:flex;gap:26px;align-items:flex-end}
+.chains{display:flex;gap:14px;align-items:center}
+.chains .chip.sol{color:#fff;border:2px solid transparent;background:linear-gradient(#120d33,#120d33) padding-box,linear-gradient(135deg,#9945FF,#14F195) border-box;font-size:18px;padding:10px 20px}
+.solb{font:700 15px 'Space Mono',monospace;letter-spacing:.3em;color:var(--lav);display:flex;align-items:center;gap:12px}
+.solb i{width:12px;height:12px;border-radius:50%;background:linear-gradient(135deg,#9945FF,#14F195)}
+.prog{position:absolute;left:0;bottom:0;height:4px;background:linear-gradient(90deg,var(--violet),var(--star));width:0}
+.corner{position:absolute;right:28px;top:24px;width:150px;opacity:.85}
+</style></head>
+<body><div id="stage">
+<div class="stars a"></div><div class="stars b"></div>
+<div class="planet" id="planet"></div>
+<img class="corner" id="corner" src="../../../frontend/src/assets/logo-night.png">
+
+<!-- 1. Cold open -->
+<section class="scene" data-start="0" data-end="9">
+  <div class="k fi" data-at=".3">São Paulo · 06:42 local time</div>
+  <h1 class="fu" data-at=".8">You just landed.</h1>
+  <div class="astro drop" data-at="1.6" style="margin-top:70px"><div class="mascot" data-online="99"></div></div>
+  <p class="lead fu" data-at="4.4">Your phone says: <b style="color:var(--red)">No service.</b></p>
+</section>
+
+<!-- 2. Problem -->
+<section class="scene" data-start="9" data-end="24">
+  <div class="k fi" data-at=".2">Your options today</div>
+  <div class="row">
+    <div class="card bad sl" data-at=".6" style="width:380px"><i>✕ OPTION 01</i><div class="t">Roaming fees</div>
+      <div class="bill">$<span data-count="0,184.60,2" data-t="1.2,5.5">0</span></div>
+      <small>A surprise waiting on next month's bill.</small></div>
+    <div class="card bad sr" data-at="1.4" style="width:380px"><i>✕ OPTION 02</i><div class="t">Prepaid eSIM plans</div>
+      <div class="gb"><span>5 GB</span><span class="q blink">?</span><span>10 GB</span><span class="q blink">?</span><span>20 GB</span></div>
+      <small style="margin-top:12px">Pick a size and hope you guessed right.</small></div>
+  </div>
+  <div class="row" style="gap:50px;margin-top:6px">
+    <p class="lead fu" data-at="4.2" style="max-width:420px;font-size:20px">Guess too high: you pay for data <b>you never use.</b></p>
+    <p class="lead fu" data-at="5.4" style="max-width:420px;font-size:20px">Guess too low: you're offline <b>right when you need it.</b></p>
+  </div>
+  <h2 class="fu" data-at="8.2">Travelers are forced to <span class="y">prepay for a guess.</span></h2>
+</section>
+
+<!-- 3. Logo reveal -->
+<section class="scene" data-start="24" data-end="31">
+  <img class="ship pop float" data-at=".3" src="../../../frontend/src/assets/ship-night.png">
+  <img class="logo fu" data-at="1" src="../../../frontend/src/assets/logo-night.png">
+  <div class="tag fu" data-at="2">AstroAm fixes that.</div>
+</section>
+
+<!-- 4. Deposit -->
+<section class="scene" data-start="31" data-end="42">
+  <div class="k fi" data-at=".2">Step 01 · Deposit</div>
+  <h2 class="fu" data-at=".5">Pay for the data you use, <span class="v">not the data you guess.</span></h2>
+  <div class="flow" style="margin-top:20px">
+    <div class="node sl" data-at="1.4"><div class="ic">👛</div><div class="t">Your wallet</div>
+      <div style="display:flex;gap:8px"><span class="chip">Phantom</span><span class="chip">Solflare</span></div></div>
+    <div class="arrow fi" data-at="2.2">
+      <div class="coin" data-at="2.6">$</div><div class="coin" data-at="3.1">$</div><div class="coin" data-at="3.6">$</div></div>
+    <div class="node vault sr" data-at="2"><div class="lock pop" data-at="5.2">🔒</div><div class="ic">🏦</div><div class="t">Solana escrow</div>
+      <small><span data-count="0,10,2" data-t="2.6,5">0.00</span> USDC locked</small></div>
+  </div>
+  <p class="lead fu" data-at="5.6">Your USDC goes into an escrow on Solana. <b>Not to us.</b></p>
+</section>
+
+<!-- 5. eSIM -->
+<section class="scene" data-start="42" data-end="53">
+  <div class="k fi" data-at=".2">Step 02 · Connect</div>
+  <div class="row" style="align-items:center;gap:90px;margin-top:40px">
+    <div style="display:flex;flex-direction:column;align-items:center;gap:16px">
+      <canvas class="qr pop" id="qr" width="29" height="29" data-at=".6"></canvas>
+      <span class="chip y fu" data-at="1.2">eSIM by Citrus Mobile</span>
+    </div>
+    <div class="astro fu" data-at=".4"><div class="mascot" data-online="2.6"></div></div>
+  </div>
+  <h2 class="fu" data-at="3.6">Scan the QR. <span class="y">You're online.</span></h2>
+  <p class="lead fu" data-at="4.8">Any country. No plans. No bundles. Only the megabytes you actually use.</p>
+</section>
+
+<!-- 6. Automation -->
+<section class="scene" data-start="53" data-end="69">
+  <div class="k fi" data-at=".2">Step 03 · Travel</div>
+  <h2 class="fu" data-at=".5">You sign <span class="y">once.</span> Everything else runs on its own.</h2>
+  <div class="pipe" style="margin-top:22px">
+    <div class="st fu" data-at="1.6"><div class="ic">📡</div><div class="t">Real usage</div><small>read from the carrier</small></div>
+    <div class="ln fi" data-at="2.2"><b></b></div>
+    <div class="st fu" data-at="2.4"><div class="ic">✍️</div><div class="t">Signed voucher</div><small>by AstroAm's meter</small></div>
+    <div class="ln fi" data-at="3"><b></b></div>
+    <div class="st fu" data-at="3.2"><div class="ic">⛓️</div><div class="t">Verified on-chain</div><small>by the Solana program</small></div>
+    <div class="ln fi" data-at="3.8"><b></b></div>
+    <div class="st fu" data-at="4"><div class="ic">⚡</div><div class="t">eSIM topped up</div><small>in small tranches</small></div>
+  </div>
+  <div class="row" style="align-items:center;gap:40px;margin-top:16px">
+    <div class="apps fu" data-at="5.4"><span>🗺️</span><span>🚕</span><span>💬</span><span>📸</span></div>
+    <div class="meter fu" data-at="5.6"><span data-count="0,250,0" data-t="6,12">0</span> MB used</div>
+  </div>
+  <div class="row" style="gap:14px">
+    <span class="chip y pop" data-at="8">No wallet popups</span>
+    <span class="chip y pop" data-at="9">No transaction per MB</span>
+    <span class="chip y pop" data-at="10">Never offline while funds remain</span>
+  </div>
+</section>
+
+<!-- 7. Trust -->
+<section class="scene" data-start="69" data-end="85">
+  <div class="k fi" data-at=".2">Built on trust, enforced by code</div>
+  <h2 class="fu" data-at=".5">Your money stays <span class="v">yours.</span></h2>
+  <div class="row" style="margin-top:20px">
+    <div class="card fu" data-at="1.6"><i>01 · ESCROW</i><div class="t">Locked in a vault</div><small>A program-owned vault that nobody on our team can touch.</small></div>
+    <div class="card fu" data-at="3.4"><i>02 · CAPPED</i><div class="t">Never more</div><small>We can never charge more than you deposited.</small></div>
+    <div class="card fu" data-at="5.2"><i>03 · AUDITABLE</i><div class="t">Public vouchers</div><small>Every voucher is on the explorer, checkable against the carrier's log.</small></div>
+    <div class="card fu" data-at="7"><i>04 · TIMEOUT</i><div class="t">If we vanish</div><small>Anyone can trigger the refund. You get back what wasn't used.</small></div>
+  </div>
+</section>
+
+<!-- 8. Numbers -->
+<section class="scene" data-start="85" data-end="99">
+  <div class="k fi" data-at=".2" style="margin-bottom:20px">Real numbers · 250 MB in Brazil</div>
+  <div class="row" style="align-items:center;gap:50px">
+    <div class="astro pop" data-at=".5"><div class="mascot float" data-online="0" data-hud="0"></div></div>
+    <div style="display:flex;flex-direction:column;align-items:flex-start;gap:18px">
+      <div class="fu" data-at="1" style="font:700 22px 'Space Mono',monospace;color:var(--lav)">10 USDC deposit</div>
+      <div class="split fi" data-at="1.6" style="width:620px"><div class="u"></div><div class="r" data-at="2"></div></div>
+      <div class="legend fu" data-at="2.4"><span class="u">■ 0.625 used</span><span class="r">■ 9.375 back</span></div>
+      <div class="num fu" data-at="3.6"><span data-count="0,9.375,3" data-t="3.8,6.8">0.000</span></div>
+      <div class="fu" data-at="4.4" style="font:700 26px 'Space Grotesk';color:var(--ink)">USDC back in your wallet. <span style="color:var(--star)">One transaction.</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- 9. Team -->
+<section class="scene" data-start="99" data-end="110">
+  <div class="k fi" data-at=".2">The crew</div>
+  <h2 class="fu" data-at=".5">Four builders from <span class="y">Jujuy, Argentina.</span></h2>
+  <div class="team" style="margin:16px 0 10px">
+    <div class="astro drop" data-at="1.2"><div class="mascot sm" data-online="0"></div></div>
+    <div class="astro drop" data-at="1.5"><div class="mascot sm" data-online="0"></div></div>
+    <div class="astro drop" data-at="1.8"><div class="mascot sm" data-online="0"></div></div>
+    <div class="astro drop" data-at="2.1"><div class="mascot sm" data-online="0"></div></div>
+  </div>
+  <div class="chains">
+    <span class="chip fu" data-at="3.4">Stellar ✓</span><span class="chip fu" data-at="3.9">Monad ✓</span>
+    <span style="font:700 26px 'Space Grotesk';color:var(--lav)" class="fi" data-at="4.4">→</span>
+    <span class="chip sol pop" data-at="4.8">Now end to end on Solana</span>
+  </div>
+  <p class="lead fu" data-at="6">The chain where small, fast, cheap payments make the most sense.</p>
+</section>
+
+<!-- 10. Outro -->
+<section class="scene" data-start="110" data-end="121">
+  <div class="row" style="align-items:center;gap:30px">
+    <img class="ship pop float" data-at=".3" src="../../../frontend/src/assets/ship-night.png" style="width:150px">
+    <div class="astro pop" data-at="1"><div class="mascot float" data-online="0" data-hud="0" data-size="8"></div></div>
+  </div>
+  <img class="logo fu" data-at="1.6" src="../../../frontend/src/assets/logo-night.png">
+  <div class="tag fu" data-at="2.6">Travel connected. <b>Pay only for what you use.</b></div>
+  <div class="solb fi" data-at="3.8"><i></i>BUILT ON SOLANA · PAID IN USDC</div>
+</section>
+
+<div class="prog" id="prog"></div>
+</div>
+
+<script>
+// 8-bit AstroAm astronaut. K outline, W suit, G suit shade, V violet, C visor, H visor glint, B visor shade, Y star badge, S phone screen.
+const MAP = [
+"........KKKKKKKK..........",
+"......KKWWWWWWWWKK........",
+".....KWWWWWWWWWWWWK.......",
+"....KWWWWWWWWWWWWWWK......",
+"....KWWKKKKKKKKKKWWK......",
+"...KWWKCCCCCCCCHHKWWK.KKKK",
+"...KWWKCCCCCCCCCHKWWK.KSSK",
+"...KGWKCCCCCCCCCCKWGK.KSSK",
+"...KGWKBCCCCCCCCCKWGK.KSSK",
+"....KGWKBBCCCCCCKWGK..KSSK",
+"....KGWWKKKKKKKKWWGK..KKKK",
+".....KKVVVVVVVVVVKK..KWWK.",
+"....KWWWWWWWWWWWWWWK.KWWK.",
+"...KWWVVWWWWWWWWVVWWKWWK..",
+"...KWWKWWWWWVWWWWKWWWWK...",
+"...KWWKWWWWVYVWWWKKWWK....",
+"...KWWKWWWWVWVWWWK.KK.....",
+"...KGGKWWWWWWWWWWK........",
+"...KVVKVVVVVVVVVVK........",
+"....KK.KWWWWWWWWK.........",
+".......KWWWKKWWWK.........",
+".......KWWWKKWWWK.........",
+".......KGGGKKGGGK.........",
+"......KVVVVKKVVVVK........",
+"......KKKKKK.KKKKK........"]
+const PAL={K:'#0b0926',W:'#F1EEFF',G:'#C9C2F0',V:'#5B3DF5',C:'#2FD0DD',H:'#ffffff',B:'#1f9fb0',Y:'#FFC93C',S:'var(--scr)'}
+function sprite(px){
+  let r=''; MAP.forEach((row,y)=>[...row].forEach((ch,x)=>{ if(PAL[ch]) r+=`<rect x="${x}" y="${y}" width="1.02" height="1.02" fill="${PAL[ch]}"/>` }))
+  return `<svg width="${26*px}" height="${25*px}" viewBox="0 0 26 25" shape-rendering="crispEdges">${r}</svg>`
+}
+document.querySelectorAll('.mascot').forEach(m=>{
+  const sm=m.classList.contains('sm'); m.innerHTML=sprite(+m.dataset.size||(sm?6:11))
+  if(!sm&&m.dataset.hud!=='0') m.insertAdjacentHTML('beforeend','<div class="hud"><div class="bars"><i></i><i></i><i></i><i></i></div><span class="lbl">NO SERVICE</span></div>')
+})
+
+// QR code (decorative pixel pattern with finder squares)
+{ const c=document.getElementById('qr'), g=c.getContext('2d'); g.fillStyle='#fff'; g.fillRect(0,0,29,29); g.fillStyle='#0b0926'
+  let s=7; const rnd=()=>{s=(s*16807)%2147483647; return s/2147483647}
+  for(let y=0;y<29;y++)for(let x=0;x<29;x++) if(rnd()>.52) g.fillRect(x,y,1,1)
+  const f=(x,y)=>{g.fillStyle='#fff';g.fillRect(x-1,y-1,9,9);g.fillStyle='#0b0926';g.fillRect(x,y,7,7);g.fillStyle='#fff';g.fillRect(x+1,y+1,5,5);g.fillStyle='#5B3DF5';g.fillRect(x+2,y+2,3,3)}
+  f(0,0);f(22,0);f(0,22) }
+
+// Timeline: every entrance animation gets an absolute delay = scene start + data-at.
+const scenes=[...document.querySelectorAll('.scene')].map(el=>({el,s:+el.dataset.start,e:+el.dataset.end}))
+const TOTAL=120
+scenes.forEach(({el,s})=>{
+  el.querySelectorAll('[data-at]').forEach(n=>n.style.animationDelay=(s+ +n.dataset.at)+'s')
+  el.querySelectorAll('[data-count]').forEach(n=>{n._s=s})
+  el.querySelectorAll('.mascot').forEach(n=>{n._s=s})
+})
+const ease=k=>1-Math.pow(1-k,3)
+window.seek=(t)=>{
+  document.getAnimations().forEach(a=>{a.pause(); a.currentTime=t*1000})
+  for(const {el,s,e} of scenes){ const fade=.6; let o=0
+    if(t>=s&&t<e) o=Math.min(1,(t-s)/fade, (e-t)/fade); el.style.opacity=Math.max(0,o); el.style.visibility=o>0?'visible':'hidden' }
+  document.querySelectorAll('[data-count]').forEach(n=>{ const [a,b,d]=n.dataset.count.split(',').map(Number), [t0,t1]=n.dataset.t.split(',').map(Number)
+    const k=Math.max(0,Math.min(1,(t-n._s-t0)/(t1-t0))); n.textContent=(a+(b-a)*ease(k)).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d}) })
+  document.querySelectorAll('.mascot').forEach(m=>{ const hud=m.querySelector('.hud'); const on=t-m._s-(+m.dataset.online)
+    m.style.setProperty('--scr', on>=0?'#3ee08f':(Math.floor(t*2)%2?'#ff5d6e':'#3a1020'))
+    if(!hud) return; const n=on<0?0:Math.min(4,1+Math.floor(on/.25))
+    hud.classList.toggle('on',on>=0); hud.querySelectorAll('i').forEach((b,i)=>b.classList.toggle('f',i<n))
+    hud.querySelector('.lbl').textContent=on>=0?'5G · BRAZIL':'NO SERVICE'
+  })
+  document.getElementById('prog').style.width=(100*t/TOTAL)+'%'
+  const outro=t>=110||t<24; document.getElementById('corner').style.opacity=outro?0:.85
+  document.getElementById('planet').style.transform=`translateY(${Math.max(0,60-t*4)}px)`
+}
+window.TOTAL=TOTAL
+seek(0)
+</script>
+</body></html>
