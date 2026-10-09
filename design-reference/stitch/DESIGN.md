@@ -224,7 +224,7 @@ Visual depth is achieved through an airy, light-refracting hierarchy that avoids
 The shape system employs an intentional contrast between aerodynamic pill elements and structured, balanced containers:
 
 - **Full Pills (`rounded-full` / `9999px`):** Reserved for high-priority interactive components, such as primary action buttons (`Planificar mi viaje`), filter chips, live network tags (`TESTNET LIVE`), navigation bubble links, and switch thumbs.
-- **Outer Shell Surfaces & Cards (`rounded-2xl` / `24px` to `28px`):** Large cockpit cards, simulated e-SIM previews, and telemetry widgets feature generous 24px–28px curvatures to appear friendly, modern, and approachable.
+- **Outer Shell Surfaces & Cards (`rounded-2xl` / `24px` to `28px`):** Large cockpit cards, eSIM preview cards, and telemetry widgets feature generous 24px–28px curvatures to appear friendly, modern, and approachable.
 - **Nested Metrics Containers (`rounded-xl` / `16px`):** Sub-metrics (fuel gauge, active consumption blocks) maintain nested 16px radii conforming harmoniously within the 24px parent boundary.
 - **Micro UI (`rounded-lg` / `8px`):** Data tables, inline code badges, and system checkboxes.
 

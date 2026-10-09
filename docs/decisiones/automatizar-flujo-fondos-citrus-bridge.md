@@ -3,8 +3,9 @@
 **Date:** 2026-10-05 · **Status:** the escrow (vouchers signed by the meter
 key, checkpoints and claims), the tranche funding, and the automatic
 collection and close are implemented and tested; the new program is on devnet
-(`HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk`). Bridge, the Citrus card and
-the test with a real eSIM are still pending (§6).
+(`HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk`). The eSIM has been tested
+with the real provider (Citrus) and works. Bridge and the Citrus card are
+still pending (§6).
 
 > **Update 2026-10-07.** Citrus's auto-refill does not work the way §1 and §2
 > assume. It is set on the account, as a threshold and an amount: when the
@@ -237,12 +238,12 @@ Deployed: since the config grew to 106 bytes, the new code is a new program
 on devnet, `HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk` (meter
 `3WqaNhVVCCnabBLGA9YWviQHDvo6fTmX1Y9otcmsdB7k`). The first one,
 `8QXPo6yVxZuC3goYzHVLsxVkE1J6BaEqZvfW9e3Do2uq`, could not be updated with
-`--upgrade`. Deposit, checkpoint, claim and close were tested with
-FakeProvider.
+`--upgrade`. Deposit, checkpoint, claim and close on that devnet program were
+tested with FakeProvider. Separately, the eSIM has been tested with the real
+provider (Citrus) and works ([`../real-esim.md`](../real-esim.md)).
 
-Pending, outside the code: steps 1, 2, 4 and 5 of §5; the test of `refund`
-after the timeout; and the test with a real eSIM
-([`../real-esim.md`](../real-esim.md)). Citrus's webhooks
+Pending, outside the code: steps 1, 2, 4 and 5 of §5, and the test of `refund`
+after the timeout. Citrus's webhooks
 (`esim.balance_depleted`, `esim.defunded`) update the eSIM record but do not
 trigger the fund flow: today it learns from the periodic reading.
 

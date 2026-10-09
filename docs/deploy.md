@@ -4,7 +4,7 @@ Two processes: the API (this repo root) and the traveler app (`frontend/`). No s
 
 The meter and operator private keys are not in the repo. Whoever holds them can set `SOLANA_METER_KEYPAIR_JSON` and `SOLANA_OPERATOR_KEYPAIR_JSON` on the host so the API can sign a close. Without those secrets the API still serves the app and a Phantom deposit still lands in the escrow. A close waits for the meter key, or for the 7-day timeout refund.
 
-The eSIM provider stays on `CONNECTIVITY_PROVIDER=fake`. Do not set `citrus` and do not put a Citrus API key on a public demo.
+The public demo keeps `CONNECTIVITY_PROVIDER=fake`. Each real provision costs about 1.75 USD, and devnet USDC from a faucet must not be able to spend that. Do not set `citrus` and do not put a Citrus API key on a public demo. That is a deployment choice. The eSIM has been tested with Citrus and works when a private run sets `CONNECTIVITY_PROVIDER=citrus`.
 
 ## API on Render
 

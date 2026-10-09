@@ -35,7 +35,9 @@ All of AstroAm's connectivity (eSIM provisioning, funding its wallet, reading us
 
 ## 4. Current state (migration fully implemented)
 
-State at the migration commit: **T1–T8 and T10 are implemented and green** (`npm run check`, `npm test`). **T9 (smoke test with real money, §10) is pending**: it requires loading the Citrus dashboard and validating costs (C7, §12). What follows is the state of the repo at that commit:
+State at the migration commit: **T1–T8 and T10 are implemented and green** (`npm run check`, `npm test`). What follows in this section is the state of the repo at that commit.
+
+The eSIM has since been tested with the real provider (Citrus) and works. Citrus is called when `CONNECTIVITY_PROVIDER=citrus`. `CONNECTIVITY_PROVIDER` still defaults to `fake` for tests and for a public demo, because each real provision costs about 1.75 USD. That default is a deployment choice. Amounts, ICCIDs, and a date for that test are not recorded here.
 
 - `ConnectivityProvider` with the new Citrus shape (R2): `provisionEsim | topUp | getUsage → SimUsage{chargedMicroUsd, walletMicroUsd, status, asOf} | suspend | resume | refundUnused | terminate`. `simCardId === iccid`; there is no `purchaseEsim`, `enable`, `disable` or `setDataLimit`. `FakeProvider` implements the same interface for tests and demos.
 - `createConnectivityProvider()` (R1) resolves by `CONNECTIVITY_PROVIDER=fake|citrus` (default `fake`). `CitrusProvider` + `CitrusClient` (axios, configurable base URL, token bucket ≤ 100 req/min, retries with `withRetry`) and the `CitrusApiError` / `CitrusRateLimitedError` / `CitrusResellerBalanceError` taxonomy (`src/shared/citrus-errors.ts`).
@@ -49,7 +51,7 @@ State at the migration commit: **T1–T8 and T10 are implemented and green** (`n
 - `ConnectivitySession` (R13): `provider: "citrus"`, `chargedMicroUsd`, `chargedBaselineMicroUsd`, `fundedMicroUsd`; `carrierBytes` and `simCardId` removed.
 - Reconciliation (R13): `src/jobs/reconciliation.ts` compares `charged − baseline` against `funded − walletUsd` (drift = wallet − expected); diagnostic only, it never throws or affects billing. `mbToBytes` removed.
 - `server/main.ts` (D5): webhooks mounted only if `CONNECTIVITY_PROVIDER=citrus` + `CITRUS_WEBHOOK_SECRET` + `PRICE_PER_MB_RAW`, inside a try/catch that degrades with a log without preventing `listen` (FC-R1). The usage loop and `FundingService` are not mounted in the HTTP lifecycle: metering and funding are governed by the existing routes (close) and by manual operation; the value integration (R5/R6/R9) is left for T9.
-- Demos (R14): the demos run without a network using `FakeProvider` and the new interface.
+- Demos (R14): the in-repo demos run without a network using `FakeProvider` and the new interface. A run with `CONNECTIVITY_PROVIDER=citrus` calls Citrus. That path has been tested and works.
 - R15: removed `src/providers/connectivity/TelnyxProvider.ts`, `TelnyxProvider.test.ts` and `docs/telnyx-wireless-integracion.md`; removed the `TELNYX_*` vars; README updated ("Missing" checklist, Provider section, documentation).
 - Stack: Node ≥22.18 running `.ts` directly, strict ESM TypeScript, tests with `node:test`. Commands: `npm run check`, `npm test` (451 tests green).
 
@@ -183,7 +185,7 @@ The `baseline` for the next trip is read just before the first `fund`, with the 
 **R13. Reconciliation reused.** `src/jobs/reconciliation.ts` stops comparing against the gateway and compares two Citrus figures instead: `charged − baseline` against `funded − walletUsd`. Diagnostic only: it records the difference (tolerance ≥ 5¢ + lag), and never throws or affects billing. `ConnectivitySession` becomes `provider: "citrus"`, drops `carrierBytes` and adds `chargedMicroUsd`, `chargedBaselineMicroUsd`, `fundedMicroUsd`.
 - AC: with mocked readings the job logs the difference and does not throw on provider errors.
 
-**R14. Tests and demos.** Contract tests with fixtures from the OpenAPI; error table; timeout on `fund`; invariants I1 and I2; `PolicyEnforcer` with `suspend`; close sequence; duplicate webhook and invalid signature; concurrency of `provisionEsim` and of writes. The app still runs without a network using `FakeProvider` and `FakeRail`.
+**R14. Tests and demos.** Contract tests with fixtures from the OpenAPI; error table; timeout on `fund`; invariants I1 and I2; `PolicyEnforcer` with `suspend`; close sequence; duplicate webhook and invalid signature; concurrency of `provisionEsim` and of writes. The app can still run without a network using `FakeProvider` and `FakeRail`. That is how tests and a public demo avoid spending about 1.75 USD per provision. `CONNECTIVITY_PROVIDER=citrus` calls Citrus, and that path has been tested and works.
 - AC: `npm run check` and `npm test` green.
 
 **R15. Removing Telnyx.** Last commit, **only after the smoke test (T9)**: delete `TelnyxProvider.ts` and its test, `docs/telnyx-wireless-integracion.md`, the `TELNYX_*` variables; update the README ("Missing" checklist and Provider section).
@@ -216,12 +218,12 @@ The `baseline` for the next trip is read just before the first `fund`, with the 
 | T6 | `FundingService` (R5) and `PolicyEnforcer` without `set_data_limit` (R8) | T3, T4, T5 | AC of R5, R8 | ✓ done |
 | T7 | `SessionCloser` (R9) and reconciliation reused (R13) | T5, T6 | AC of R9, R13 | ✓ done |
 | T8 | Minimal webhooks (R10) | T4, T7 | AC of R10 | ✓ done |
-| T9 | Real smoke test (§10) | T2 to T8 | Full cycle run and documented | **pending** (needs real money, C7) |
+| T9 | Real run with Citrus (§10) | T2 to T8 | End-to-end run with Citrus | Tested with Citrus; it works. Amounts, ICCIDs, and a date are not recorded here. |
 | T10 | Remove Telnyx and update docs (R15) | T9 | AC of R15 | ✓ done |
 
 ## 10. Smoke test (T9)
 
-With real money (C7). Before running it, confirm in the dashboard the cost of the eSIM and the minimum top-up (see §12). Cycle: 1 eSIM provisioned, funding of $9, installation, real usage, `defund`, `esim.defunded`, comparison of `charged − baseline` against `funded − returned`. It has to validate the precision of `total_data_charged_usd`, the format of the webhook signature and how the end of the `defund` is detected.
+The eSIM has been tested end to end with the real provider (Citrus) and works. The measurements this section originally asked for are not written down here: a specific fund amount, the precision of `total_data_charged_usd`, the webhook signature format, and the comparison of `charged − baseline` against `funded − returned`.
 
 ## 11. Implementation notes
 
@@ -242,7 +244,7 @@ With real money (C7). Before running it, confirm in the dashboard the cost of th
 7. **Close port.** **Resolved:** the `SessionCloser` (R9) uses the charging server's existing close flow (final voucher → channel close) without modifying its port; it orchestrates `refundUnused` + webhook + last voucher from the sessions service.
 8. **`NetworkDataMeter`.** **Resolved:** the gateway simulator (`demo-meter.ts`) stays only as the base of `processTraffic` for the demos; in Citrus mode real usage arrives through `getUsage` (§6.2) and the policy is R8 (suspend/noop).
 9. **Delay risk (C3).** Mitigated by the prepaid wallet (I2), but a traveler can use up to about 15 min of data before the meter sees it; that is why the wallet cap is the primary protection and the `PolicyEnforcer` only a backstop.
-10. **New provider.** No visible SLA; no sandbox. Keep `FakeProvider` for development and demos.
+10. **New provider.** No visible SLA; no sandbox. `FakeProvider` stays available for tests and for deploys that should not spend about 1.75 USD per provision. The Citrus path has been tested and works.
 
 ## 13. References
 

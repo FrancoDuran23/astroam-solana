@@ -166,7 +166,9 @@ Not solved. Today the buyer needs Phantom or Solflare and USDC on Solana. A Sola
 
 ## Next experiment
 
-Ten sessions with real travelers on a real trip, with a real eSIM. Owner: Joel.
+Ten sessions with travelers on a real trip. Owner: Joel.
+
+The eSIM has been tested with the real provider (Citrus) and works. These ten sessions are still ahead.
 
 What it measures: how many finish the deposit without help, how many gigabytes they use, what share of the deposit is refunded, and whether they would pay again.
 

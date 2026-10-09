@@ -1,14 +1,14 @@
-# From a sample eSIM to a real one
+# eSIM with Citrus
 
-**Date:** 2026-10-07 · **Status:** not done. Nothing here has run against the live Citrus API from this repo. Owner: Joel.
+The eSIM has been tested with the real provider (Citrus) and works. Citrus is called when `CONNECTIVITY_PROVIDER=citrus`.
 
-The escrow is real: it is deployed on devnet and a full session is linked in the [README](../README.md#live-on-devnet). The eSIM is not. This page lists what is simulated today, why setting the Citrus key alone does not produce a working line, and the steps for one controlled real run.
+The escrow is deployed on devnet and a full session is linked in the [README](../README.md#live-on-devnet). This page lists what a public or local demo may still leave off, why a Citrus key alone does not fund a line, and how a private run is set up. It does not record ICCIDs, usage figures, or a date for the Citrus test.
 
-## What is simulated today
+## What a demo may still leave off
 
-| Piece | Today | What makes it real |
+| Piece | On a demo that does not spend reseller credit | What calls Citrus |
 |---|---|---|
-| eSIM profile | `FakeProvider` returns a sample QR. No line is issued. | `CONNECTIVITY_PROVIDER=citrus` and `CITRUS_API_KEY`, plus the two Solana keys below. |
+| eSIM profile | `CONNECTIVITY_PROVIDER=fake` keeps an in-memory profile. This is a deployment choice. Each real provision costs about 1.75 USD. | `CONNECTIVITY_PROVIDER=citrus` and `CITRUS_API_KEY`, plus the two Solana keys below. That path has been tested and works. |
 | Usage | The **Use 250 MB** button injects traffic. | `ENABLE_DEMO_TRAFFIC=false`. Usage is then what Citrus reports for that eSIM. |
 | Prices in the app | A fixed table of sample rates. | Read `GET /rates` from Citrus. Not built. |
 | USDC | Circle's devnet USDC. It has no value. | Mainnet. Out of scope for the hackathon. |
@@ -16,7 +16,7 @@ The escrow is real: it is deployed on devnet and a full session is linked in the
 | Collected USDC to dollars | Nothing moves. | A Bridge account, or a manual conversion each month. |
 | Withdrawal button on `/terms` | Stores the request in the browser only. | A real contact and a legal review. |
 
-Two pieces are real but could be mistaken for simulated. The budget assistant follows fixed rules and calls no model; the app says so. `PAYMENT_RAIL=fake` only keeps the demo's metering in memory; the USDC moves through the escrow program, not through that rail.
+The budget assistant follows fixed rules and calls no model; the app says so. `PAYMENT_RAIL=fake` only keeps the demo's metering in memory; the USDC moves through the escrow program, not through that rail.
 
 ## Why the Citrus key alone is not enough
 
@@ -38,9 +38,9 @@ So a working line needs all of these on the same API process:
 
 For the program in `.env.example`, Ignacio holds both key files. Without them, deploy your own program as in [Test with your own deploy](../README.md#test-with-your-own-deploy); the deploy prints the values to use.
 
-## One controlled real run
+## How a private Citrus run is set up
 
-Run it on a laptop, not on a public URL (see the next section).
+The eSIM has already been tested end to end with Citrus and works. The list below is the setup for that kind of run. It is not a log of amounts or a date. Run it on a laptop, not on a public URL (see the next section).
 
 1. Check the Citrus reseller balance. The run needs $1.75 for the eSIM and $2.50 for the first tranche. Keep at least $10.
 2. Put the five variables above in a local `.env`. For a short test, also set `CLAIM_MIN_USDC=0.5` so a claim happens with little usage.
@@ -56,11 +56,11 @@ What the run costs in real money: $1.75, plus whatever data is used. The part of
 
 ## Do not put the Citrus key on the public demo
 
-Devnet USDC is free from a faucet. A public API holding a Citrus key would let anyone deposit free USDC and spend real reseller dollars: $1.75 per eSIM and up to a tranche each. The public demo therefore stays on the sample profile, and the real eSIM is shown with the recorded run.
+Devnet USDC is free from a faucet. A public API holding a Citrus key would let anyone deposit free USDC and spend real reseller dollars: about 1.75 USD per eSIM and up to a tranche each. The public demo therefore keeps `CONNECTIVITY_PROVIDER=fake`. That is a deployment choice. The eSIM has been tested with Citrus and works on a run that sets `CONNECTIVITY_PROVIDER=citrus`.
 
 Charging real money for real data needs mainnet USDC, and with it an audit of the program, the multisig, and the legal review.
 
-## What still would not be real after that run
+## What that test does not change
 
 - **Prices.** The traveler is charged what Citrus charged, times 1.5. The table in the app is a sample: it matches Citrus's cheapest network per country, and a phone can connect to a dearer one.
 - **Speed of usage.** A reading takes 10 to 15 minutes to arrive, so the balance on screen lags.

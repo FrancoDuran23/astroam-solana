@@ -18,7 +18,7 @@ Roaming plans are sold in big blocks. A weekend trip still pays for a week or a 
 
 You pick a country and a USDC budget. One wallet transaction deposits Circle devnet USDC into an escrow the program owns. Usage is measured off-chain. AstroAm's meter key signs a running total. One close pays that total to AstroAm and sends the remainder back. If nobody closes, a timeout does the same split after 7 days.
 
-The eSIM screen in this demo is a sample profile. A live carrier is not connected.
+The eSIM has been tested with the real provider (Citrus) and works. Citrus is called when `CONNECTIVITY_PROVIDER=citrus`. A public demo deployment may still set `CONNECTIVITY_PROVIDER=fake`, because each real provision costs about 1.75 USD. That is a deployment choice.
 
 The native program in `programs/astroam-escrow` does not debit per megabyte:
 
@@ -122,7 +122,7 @@ program
   → pays the payee the attested amount, refunds the rest
 ```
 
-The eSIM provider is behind `CONNECTIVITY_PROVIDER`. The default is `fake` (a sample profile in memory). `citrus` exists in the code and stays off unless that env var is set. This demo does not call it.
+The eSIM provider is behind `CONNECTIVITY_PROVIDER`. `citrus` calls Citrus Mobile. That path has been tested end to end and works. The default in this repo, and on the public demo, is `fake`: an in-memory provider, so a visit does not spend about 1.75 USD per provision.
 
 ### Team & roles
 
@@ -208,13 +208,13 @@ You need Node 22.18 or newer, Phantom (or another Wallet Standard wallet) on **D
    cd frontend && npm install && npm run dev   # app on http://localhost:5173
    ```
 
-4. Do not create `frontend/.env`. Without `VITE_API_BASE_URL`, Vite forwards `/api` to the backend. Leave `ASTROAM_LIVE_ENABLED=false` and `CONNECTIVITY_PROVIDER=fake`. `PAYMENT_RAIL=fake` keeps demo metering in memory. USDC moves only when the wallet sends deposit, close, or refund.
+4. Do not create `frontend/.env`. Without `VITE_API_BASE_URL`, Vite forwards `/api` to the backend. For this local run, leave `ASTROAM_LIVE_ENABLED=false` and `CONNECTIVITY_PROVIDER=fake` so the API does not spend about 1.75 USD on a real provision. `PAYMENT_RAIL=fake` keeps demo metering in memory. USDC moves only when the wallet sends deposit, close, or refund.
 
 5. Open the app, start a mission, and pay with the wallet. The USDC leaves your token account only when you approve the transaction. If both Phantom and Solflare are installed, the app uses Phantom first. Turn Phantom off to try Solflare.
 
 `VITE_ASTROAM_MODE=demo` is a separate local mode with no chain. It is not the default. The default is `api`.
 
-The traveler signs only the deposit. **Use 250 MB** and the close do not open the wallet. The close needs the meter key, which is not in this repo. **Refund after timeout** pays what was attested and returns the rest. Demo traffic stays on FakeProvider, as a sample profile. The live devnet run above is the one to judge: 2.5 USDC in, 1.875 USDC to the payee, 0.625 USDC back.
+The traveler signs only the deposit. **Use 250 MB** and the close do not open the wallet. The close needs the meter key, which is not in this repo. **Refund after timeout** pays what was attested and returns the rest. With `CONNECTIVITY_PROVIDER=fake`, **Use 250 MB** is local demo traffic. The eSIM has been tested with Citrus and works when `CONNECTIVITY_PROVIDER=citrus`. The live devnet run above is the one to judge for the escrow: 2.5 USDC in, 1.875 USDC to the payee, 0.625 USDC back.
 
 Publishing a public URL: [docs/deploy.md](docs/deploy.md).
 
@@ -349,7 +349,7 @@ That loop needs the meter key for the program you are running. For the program i
 
 Without those variables the API cannot sign a voucher. The old program still rejects a close the traveler did not sign.
 
-Still not in the code: open the Bridge account and create the liquidation address, set the card and auto-reload on the eSIM provider, and try the loop with a real eSIM. The meter-key program is already on devnet (above). If `solana program deploy` says the program account is too small, `solana program extend <program id> <bytes>` grows it.
+Still not in the code: open the Bridge account and create the liquidation address, and set the card and auto-reload on the eSIM provider. The eSIM has been tested with Citrus and works. The meter-key program is already on devnet (above). If `solana program deploy` says the program account is too small, `solana program extend <program id> <bytes>` grows it.
 
 What the eSIM provider allows, the architecture that results from it, and the options for the collected money: [docs/decisiones/fund-flow-architecture.md](docs/decisiones/fund-flow-architecture.md).
 
@@ -357,7 +357,7 @@ What the eSIM provider allows, the architecture that results from it, and the op
 
 Who buys, through which channel, at what price and margin: [docs/go-to-market.md](docs/go-to-market.md). Validation so far is desk research and that price comparison. Customer interviews are planned and have not been done: [docs/validation.md](docs/validation.md).
 
-The USDC-per-GB figures below are the go-to-market rates: reseller cost of the cheapest network, times 1.5 (`MARKUP_BPS=15000`). Those costs were read on 7 October 2026. The card, roaming, and retail quotes were read on 8 October 2026, between 01:20 and 02:10 ART. The sample rates in the app (`pricePerMbUsdc`, Brazil 0.0025 USDC per MB) are examples for a demo with no live carrier. They are not this comparison.
+The USDC-per-GB figures below are the go-to-market rates: reseller cost of the cheapest network, times 1.5 (`MARKUP_BPS=15000`). Those costs were read on 7 October 2026. The card, roaming, and retail quotes were read on 8 October 2026, between 01:20 and 02:10 ART. The rates shown in the app (`pricePerMbUsdc`, Brazil 0.0025 USDC per MB) are a fixed table. They are not this comparison. The eSIM has been tested with Citrus and works.
 
 ### Target market
 
@@ -469,14 +469,14 @@ Left out of both sides: the $1.75 issue fee, and the card's 30% percepción. Thi
 | Who signed | The traveler signed only the deposit. Checkpoints, claims, and the close were signed by the payee key. |
 | Wallet | Phantom or any Wallet Standard wallet. The app does not embed a mock wallet. |
 | USDC | Circle's devnet mint, once the traveler holds some. |
-| eSIM | Sample test profile from `FakeProvider`. No line is issued. The Citrus adapter stays behind `CONNECTIVITY_PROVIDER=citrus` and is not called. |
+| eSIM | Tested with the real provider (Citrus), and it works. Citrus is called when `CONNECTIVITY_PROVIDER=citrus`. The public demo may still use `CONNECTIVITY_PROVIDER=fake`, because each real provision costs about 1.75 USD. |
 | Budget assistant | Rules in the app (daily limit, 20% warning). No model is called. |
 | Smart plan selection | Planned onboarding. Not implemented. The comparison is under [Smart plan selection](#smart-plan-selection-planned). |
 | Sales channels | Planned. No QR, referral, creator, or wallet deal is live. See [Go-to-market / Sales channels](#go-to-market--sales-channels). |
 
 ## Roadmap
 
-1. **Issue a real eSIM from the flow and close 10 sessions with travelers on a real trip.** Owner: Joel. The Citrus reseller account, API key and balance exist. What is missing is in [docs/real-esim.md](docs/real-esim.md).
+1. **Close 10 sessions with travelers on a real trip.** Owner: Joel. The eSIM has been tested with Citrus and works. These traveler sessions are still ahead. There are no paying users. Setup notes: [docs/real-esim.md](docs/real-esim.md).
 2. Move the upgrade authority and the payee to a 2-of-3 Squads multisig. Owner: Ignacio, who holds the deployer key. What that changes, and what is still trusted today: [Custody and trust model](#custody-and-trust-model).
 3. Return the escrow and vault rent to the traveler at `close`.
 4. Legal review of the draft terms, including the refund rule and the Argentine right of withdrawal (botón de arrepentimiento), then publish a contact for that request.

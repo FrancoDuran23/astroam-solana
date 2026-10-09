@@ -2,25 +2,27 @@
 
 **Informe para el equipo** · 7 de octubre de 2026 · **Cierre recomendado por Superteam:** domingo 11/10 a las 23:59
 
+> **Update.** The eSIM has been tested with the real provider (Citrus) and works. Citrus is called when `CONNECTIVITY_PROVIDER=citrus`. A public demo may still set `CONNECTIVITY_PROVIDER=fake`, because each real provision costs about 1.75 USD. That is a deployment choice. This note does not add amounts, ICCIDs, or a date for that test, and it does not claim mainnet or paying users.
+
 ---
 
 ## 1. Resumen
 
-La devolución de Superteam Argentina del 5 de octubre puso el proyecto en **46 sobre 100**, con objetivo **80**. Desde entonces el equipo cerró casi todo lo técnico. Lo que falta es lo que el jurado ve primero: **los videos, una eSIM real y la parte de negocio**.
+La devolución de Superteam Argentina del 5 de octubre puso el proyecto en **46 sobre 100**, con objetivo **80**. Desde entonces el equipo cerró casi todo lo técnico. Lo que falta es lo que el jurado ve primero: **los videos y la parte de negocio**. La eSIM ya se probó con el proveedor real (Citrus) y funciona.
 
 | Ya estaba resuelto en main | Lo que hice hoy (rama `feat/submission-gaps`, sin commit) | Lo que solo puede hacer el equipo |
 |---|---|---|
-| • El cierre del escrow: el medidor firma el vale y el viajero no puede trabarlo.<br>• El timeout paga lo atestado.<br>• Programa redesplegado en devnet, con una corrida real enlazada. | • README en inglés, con roles y modelo de confianza.<br>• Términos en borrador en `/terms`.<br>• "Why Solana" con las comisiones medidas.<br>• Por qué sigue la clave del deployer.<br>• Toda la carpeta `docs/` en inglés.<br>• Go-to-market con los costos reales de Citrus.<br>• Validación: investigación de escritorio y comparación de precios. Las entrevistas están planificadas y no se hicieron.<br>• Guía para emitir la eSIM real.<br>• Un error que impedía usar el front desplegado. | • Grabar y publicar el pitch y la demo.<br>• Emitir la eSIM real (Joel).<br>• Desplegar la API y el front.<br>• Tres a cinco entrevistas reales.<br>• Contactar un canal.<br>• Registrarse en Colosseum y enviar en Earn.<br>• Escribirle a Citrus. |
+| • El cierre del escrow: el medidor firma el vale y el viajero no puede trabarlo.<br>• El timeout paga lo atestado.<br>• Programa redesplegado en devnet, con una corrida real enlazada. | • README en inglés, con roles y modelo de confianza.<br>• Términos en borrador en `/terms`.<br>• "Why Solana" con las comisiones medidas.<br>• Por qué sigue la clave del deployer.<br>• Toda la carpeta `docs/` en inglés.<br>• Go-to-market con los costos reales de Citrus.<br>• Validación: investigación de escritorio y comparación de precios. Las entrevistas están planificadas y no se hicieron.<br>• Guía para emitir la eSIM real.<br>• Un error que impedía usar el front desplegado. | • Grabar y publicar el pitch y la demo.<br>• La eSIM ya se probó con Citrus y funciona.<br>• Desplegar la API y el front.<br>• Tres a cinco entrevistas reales.<br>• Contactar un canal.<br>• Registrarse en Colosseum y enviar en Earn.<br>• Escribirle a Citrus. |
 
 > **Verificación de hoy:** pasan los 226 tests de TypeScript y los 22 del programa en Rust, y los dos chequeos de tipos.
 
 ---
 
-## 2. Qué está simulado hoy y qué falta para que no lo esté
+## 2. Qué puede seguir en modo demo, y qué ya no
 
 | Pieza | Cómo está hoy | Qué falta para que sea real |
 |---|---|---|
-| **Perfil de la eSIM** | Un proveedor de prueba devuelve un QR de ejemplo. No se emite ninguna línea. | Prender Citrus con su clave y además las dos claves de Solana en la misma API. Ver la [sección 3](#3-la-esim-real-lo-que-le-falta-a-joel). |
+| **Perfil de la eSIM** | Probado con Citrus, y funciona. Una demo pública puede usar `CONNECTIVITY_PROVIDER=fake` para no gastar unos 1,75 USD por alta. Eso es una decisión de despliegue. | `CONNECTIVITY_PROVIDER=citrus` llama a Citrus. Ver la [sección 3](#3-la-esim-con-citrus). |
 | **Consumo** | El botón "Use 250 MB" inventa tráfico. | Poner `ENABLE_DEMO_TRAFFIC=false`. El consumo pasa a ser lo que informa Citrus. Hoy dejé el botón oculto en ese caso. |
 | **Precios de la app** | Una tabla fija de tarifas de ejemplo. | Leer las tarifas de Citrus por API. No está construido. La tabla coincide con la red más barata de cada país por 1,5. |
 | **USDC** | USDC de devnet, que no vale nada. | Mainnet. Queda fuera del hackathon: pide auditoría, multisig y revisión legal. |
@@ -28,15 +30,17 @@ La devolución de Superteam Argentina del 5 de octubre puso el proyecto en **46 
 | **USDC cobrado a dólares** | No se mueve nada. | Cuenta de Bridge, o conversión manual una vez por mes. |
 | **Botón de arrepentimiento** | Guarda el pedido solo en el navegador. | Un contacto real y la revisión de un abogado. |
 
-> **Lo que ya es real y a veces se confunde:** el escrow en devnet con sus transacciones, la firma del medidor verificada on-chain, y la wallet (Phantom o cualquier wallet estándar). El asistente de presupuesto sigue reglas fijas y no llama a ningún modelo; la app ya lo dice.
+> **Lo que ya es real y a veces se confunde:** el escrow en devnet con sus transacciones, la firma del medidor verificada on-chain, la wallet (Phantom o cualquier wallet estándar), y la eSIM, probada con Citrus. El asistente de presupuesto sigue reglas fijas y no llama a ningún modelo; la app ya lo dice.
 
 ---
 
-## 3. La eSIM real: lo que le falta a Joel
+## 3. La eSIM con Citrus
 
-Tienen la clave de Citrus y saldo, y aun así "falta algo". **Lo que falta son dos claves de Solana en la misma API.**
+La eSIM se probó de punta a punta con el proveedor real (Citrus) y funciona. Citrus se llama cuando `CONNECTIVITY_PROVIDER=citrus`.
 
-Con solo la clave de Citrus, la API sí crea una eSIM real y Citrus cobra $1,75. Pero esa eSIM nace con saldo $0, y con saldo $0 no pasa datos.
+Una demo pública puede seguir en `CONNECTIVITY_PROVIDER=fake`, porque cada alta real cuesta unos 1,75 USD. Eso es una decisión de despliegue.
+
+Con solo la clave de Citrus, la API crea una eSIM real y Citrus cobra unos 1,75 USD. Esa eSIM nace con saldo $0, y con saldo $0 no pasa datos. El fondeo sigue pidiendo las claves de Solana de abajo.
 
 La API le carga saldo a la eSIM **únicamente si leyó el depósito del escrow por su cuenta**. Para leerlo usa la clave de operador.
 
@@ -66,9 +70,9 @@ Las dos claves del programa que está en `.env.example` las tiene Ignacio. Si no
 
 > Cuesta $1,75 más los datos que se usen. Lo que sobra del tramo vuelve al saldo de Citrus al cerrar.
 > 
-> **No poner la clave de Citrus en la demo pública.** El USDC de devnet es gratis. Una API pública con la clave de Citrus dejaría que cualquiera deposite USDC gratis y gaste dólares reales del saldo. La demo pública sigue con el perfil de ejemplo, y la eSIM real se muestra con la corrida grabada.
+> **No poner la clave de Citrus en la demo pública.** El USDC de devnet es gratis. Una API pública con la clave de Citrus dejaría que cualquiera deposite USDC gratis y gaste dólares reales del saldo. La demo pública puede quedar en `CONNECTIVITY_PROVIDER=fake`. Eso es una decisión de despliegue. La eSIM ya se probó con Citrus y funciona.
 > 
-> *Esta guía sale de leer el código. El camino con Citrus real nunca corrió desde este repo; los tests usan el proveedor de prueba. En el repo quedó en inglés como `docs/real-esim.md`.*
+> *La misma guía, en inglés, está en `docs/real-esim.md`.*
 
 ---
 
@@ -88,7 +92,7 @@ Las dos claves del programa que está en `.env.example` las tiene Ignacio. Si no
 | 10 | **P1 · Front desplegado** | Parcial | La configuración está lista y arreglé el error que lo rompía. Falta desplegar con las cuentas del equipo. |
 | 11 | **P1 · Rol de cada integrante** | Casi | Agregar la experiencia previa de cada uno y llevarlo a la aplicación y al pitch. |
 | 12 | **P1 · Reventa de eSIM y términos** | Parcial | Términos en borrador. Falta la respuesta escrita de Citrus (mail en el [Anexo B](#anexo-b-mail-para-citrus)) y la consulta legal. |
-| 13 | **P2 · eSIM real con Citrus** | Falta | Sección 3. Responsable: Joel. |
+| 13 | **P2 · eSIM real con Citrus** | Hecho | Probada de punta a punta con Citrus. Funciona. Sin montos ni fecha en este informe. |
 | 14 | **P2 · Solana Pay y wallets móviles** | Falta | Sin empezar. Es para después del hackathon. |
 | 15 | **Modelo de confianza del medidor** | Hecho | Nada. |
 | 16 | **Por qué Solana es necesaria** | Hecho hoy | Nada. [Sección 5](#5-por-qué-solana). |
@@ -208,12 +212,12 @@ La comparación de precios está en `docs/go-to-market.md` y en el README. No sa
 
 ## 9. Plan hasta el domingo
 
-Es una propuesta. Solo están confirmados Joel para la eSIM real e Ignacio como quien tiene las claves; el resto hay que asignarlo.
+Es una propuesta. La eSIM con Citrus ya se probó y funciona. Ignacio es quien tiene las claves; el resto hay que asignarlo.
 
 | Cuándo | Qué | Quién |
 |---|---|---|
 | **Jueves 8** | Pasarle las claves a Joel, o desplegar la API con las claves cargadas. | Ignacio |
-| **Jueves 8** | Corrida real con Citrus (sección 3) y anotar el resultado. | Joel |
+| **Jueves 8** | La eSIM con Citrus ya se probó de punta a punta y funciona. Este informe no anota montos ni fecha. | Joel |
 | **Jueves 8** | Mail a Citrus ([Anexo B](#anexo-b-mail-para-citrus)). | A asignar |
 | **Viernes 9** | Desplegar API y front, y que alguien de afuera lo pruebe solo. | A asignar |
 | **Viernes 9** | Tres a cinco entrevistas y un mensaje a un canal. | A asignar |
@@ -247,8 +251,7 @@ Está todo en la rama local `feat/submission-gaps`, sin commit ni push.
 > *"We start with Argentine travelers who already hold USDC, reached through the crypto communities where the team is active (jujuy.dev and Superteam Argentina), then Argentine wallets and exchanges on a referral fee. The traveler pays the carrier's cost times 1.5: 2.48 USDC per GB in Brazil at Citrus Mobile's published reseller rate. Validation so far is desk research and price comparison only. Customer interviews are planned and not done. There is no paying user, and demand is not validated yet. The next experiment is ten sessions with real travelers on a real trip."*
 
 ### Qué es real y qué no, para poner junto al video
-> *"Real: the escrow program on Solana devnet and every transaction shown. Sample: the eSIM profile, which no carrier issued."*  
-> *(Si la corrida de Joel sale bien, la segunda oración cambia por: "The eSIM in this run was issued by Citrus Mobile from the app.")*
+> *"Real: the escrow program on Solana devnet and every transaction shown. The eSIM has been tested with the real provider (Citrus) and works."*
 
 ### Guion del pitch de 2:00
 *Son unas 270 palabras. Lo que está entre corchetes lo tienen que completar con un dato real; si no lo tienen, se dice que todavía no lo saben.*
@@ -257,11 +260,11 @@ Está todo en la rama local `feat/submission-gaps`, sin commit ni push.
 |---|---|---|
 | **0:00–0:15** | **Problem** | An Argentine traveler buys mobile data with a card, pays the surcharges, and loses whatever he did not use. |
 | **0:15–0:30** | **Insight** | Pay-as-you-go eSIMs keep your credit inside their app. eSIMs paid with crypto sell closed packages with no refund. Nobody returns the unused part to your own wallet. |
-| **0:30–1:00** | **Product** | AstroAm: you deposit USDC once into an escrow on Solana. Usage is measured off-chain and our meter signs a running total. One close pays what you used and returns the rest, and the traveler cannot block it. On devnet: 2.5 USDC in, 1.875 paid, 0.625 back, in seven transactions that cost 0.000065 SOL in fees. [The eSIM in this demo is a sample profile / We issued a real eSIM from the app.] |
+| **0:30–1:00** | **Product** | AstroAm: you deposit USDC once into an escrow on Solana. Usage is measured off-chain and our meter signs a running total. One close pays what you used and returns the rest, and the traveler cannot block it. On devnet: 2.5 USDC in, 1.875 paid, 0.625 back, in seven transactions that cost 0.000065 SOL in fees. The eSIM has been tested with Citrus and works. |
 | **1:00–1:20** | **Evidence** | The program is live on devnet with 22 tests, including the case where the traveler never signs. Every transaction is on the explorer. We have not validated demand yet. Validation so far is desk research and price comparison only. Customer interviews are planned and not done, and that is the next experiment. |
 | **1:20–1:40** | **Segment and price** | We start with Argentine travelers who already hold USDC, through the crypto communities we belong to. We charge the carrier's cost times one and a half: 2.48 USDC per gigabyte in Brazil, against [Y] with an Argentine card. |
 | **1:40–1:50** | **Team** | We are four, from Jujuy. Franco builds the escrow and the payments, Ignacio the connectivity and the contracts, Daniel the backend and metering, Joel the app. |
-| **1:50–2:00** | **Next** | Next: a real eSIM issued from the flow and ten sessions with travelers on a real trip, led by Joel, by [date]. |
+| **1:50–2:00** | **Next** | Next: ten sessions with travelers on a real trip, led by Joel, by [date]. The eSIM has been tested with Citrus and works. |
 
 ---
 
