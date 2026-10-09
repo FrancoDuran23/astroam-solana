@@ -4,6 +4,12 @@ Prepaid travel data: you lock USDC on Solana, pay only for what a meter attests,
 
 Demo for Colosseum / Superteam Argentina. Deadline: Sunday 11 October 2026, 23:59 ART. The traveler app started from the Stellar build ([FrancoDuran23/stellar_jujuy_dev@a19ed4d](https://github.com/FrancoDuran23/stellar_jujuy_dev/tree/a19ed4d)). The Soroban channel is not the payment path of this demo.
 
+## Video pitch
+
+https://github.com/user-attachments/assets/138192e6-7086-4dc6-8f38-9438cfea96cb
+
+[`docs/demo/AstroAm-pitch-EN.mp4`](docs/demo/AstroAm-pitch-EN.mp4) (2:00). The animation is rendered from [`docs/demo/promo`](docs/demo/promo/README.md).
+
 ## Problem
 
 Roaming plans are sold in big blocks. A weekend trip still pays for a week or a pile of gigabytes, and the unused part expires. The bill shows up later.
