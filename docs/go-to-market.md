@@ -91,7 +91,7 @@ Same figures as the README. AstroAm's column is the cheapest-network rate above 
 | Paraguay | **5.25** | 7.09 | 26% lower | 4.94 | 6% higher | 9.89 | **5.25** | 47% lower |
 | Bolivia | **2.76** | 9.69 | 72% lower | 7.02 | 61% lower | 14.05 | **2.76** | 80% lower |
 
-Validation so far is this desk comparison of published rates. Customer interviews are planned and have not been done, so no traveler spend or unused-data share is cited here. See [validation.md](validation.md).
+This section is a desk comparison of published rates. Ten traveler interviews were done on 2026-10-10; what they paid is recalled from memory and in pesos, so it is not mixed into this table. See [validation.md](validation.md).
 
 A fully used 10 GB card pack: Chile and Uruguay US$3.25/GB (AstroAm 24% lower), Brazil US$2.47/GB (about the same: 24.80 USDC against US$24.72), Paraguay US$3.25/GB (AstroAm 61% higher), Bolivia US$4.55/GB (AstroAm 39% lower).
 
@@ -113,7 +113,7 @@ The unused balance is what comes back. Card packs and carrier packs do not retur
 
 The $1.75 issue fee is not in the per-GB figures. Buying USDC at the crypto rate (ARS 1,605.09) instead of MEP adds about 4.3%, and that is not in the table. VAT on these sellers is not added (they are not on ARCA's list). Impuesto PAIS ended on 23 December 2024.
 
-What is checked so far is this desk comparison. Customer interviews are planned and have not been done. See [validation.md](validation.md).
+What is checked so far is this desk comparison and 10 traveler interviews. No traveler has deposited yet. See [validation.md](validation.md).
 
 ### Smart plan selection (planned)
 
@@ -146,7 +146,7 @@ Sources, read on 8 October 2026 unless noted:
 
 ### Sales channels (planned)
 
-**Planned. Nothing here is running.** As of 8 October 2026 no terminal, agency, creator, or wallet company has been contacted, no QR is up, and no referral fee has been paid. The same table is in the README under Go-to-market / Sales channels.
+**Planned. Nothing here is running.** On 10 October 2026 two travel agencies in San Salvador de Jujuy, Las Salinas Viajes y Turismo and Nasa Turismo, were invited by WhatsApp to a free referral pilot. Neither has answered yet ([outreach log](validation.md#4-distribution-channel--agency-outreach-log)). No terminal, creator, or wallet company has been contacted, no QR is up, and no referral fee has been paid. The same table is in the README under Go-to-market / Sales channels.
 
 The first five channels are for Argentine travelers leaving for Chile, Brazil, Uruguay, Paraguay, or Bolivia. CAC is cash spent on that channel divided by travelers who finish a deposit. Conversion is deposits divided by scans, links, or referrals. The pilot ask is ten real trips in the next 60 days.
 
