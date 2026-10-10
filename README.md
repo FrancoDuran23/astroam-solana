@@ -18,7 +18,7 @@ Roaming plans are sold in big blocks. A weekend trip still pays for a week or a 
 
 You pick a country and a USDC budget. One wallet transaction deposits Circle devnet USDC into an escrow the program owns. Usage is measured off-chain. AstroAm's meter key signs a running total. One close pays that total to AstroAm and sends the remainder back. If nobody closes, a timeout does the same split after 7 days.
 
-The eSIM screen in this demo is a sample profile. A live carrier is not connected.
+The eSIM screen in this demo is a sample profile. A live carrier is not connected. One real Citrus eSIM was issued from this flow on 2026-10-09 and settled on devnet: see [docs/real-esim.md](docs/real-esim.md#run-of-2026-10-09).
 
 The native program in `programs/astroam-escrow` does not debit per megabyte:
 
@@ -122,7 +122,7 @@ program
   → pays the payee the attested amount, refunds the rest
 ```
 
-The eSIM provider is behind `CONNECTIVITY_PROVIDER`. The default is `fake` (a sample profile in memory). `citrus` exists in the code and stays off unless that env var is set. This demo does not call it.
+The eSIM provider is behind `CONNECTIVITY_PROVIDER`. The default is `fake` (a sample profile in memory). `citrus` exists in the code and stays off unless that env var is set. The public demo does not call it. It was turned on once, on a laptop, for the [2026-10-09 run](docs/real-esim.md#run-of-2026-10-09).
 
 ### Team & roles
 
@@ -349,9 +349,32 @@ That loop needs the meter key for the program you are running. For the program i
 
 Without those variables the API cannot sign a voucher. The old program still rejects a close the traveler did not sign.
 
-Still not in the code: open the Bridge account and create the liquidation address, set the card and auto-reload on the eSIM provider, and try the loop with a real eSIM. The meter-key program is already on devnet (above). If `solana program deploy` says the program account is too small, `solana program extend <program id> <bytes>` grows it.
+Still not in the code: open the Bridge account and create the liquidation address, and set the card and auto-reload on the eSIM provider. The loop ran once with a real eSIM on 2026-10-09 ([docs/real-esim.md](docs/real-esim.md#run-of-2026-10-09)). The meter-key program is already on devnet (above). If `solana program deploy` says the program account is too small, `solana program extend <program id> <bytes>` grows it.
 
 What the eSIM provider allows, the architecture that results from it, and the options for the collected money: [docs/decisions/fund-flow-architecture.md](docs/decisions/fund-flow-architecture.md).
+
+### Mission log
+
+Every trip keeps an append-only history of its eSIM and its data usage, so a run can be checked after the fact and a traveler's charge can be traced to the readings behind it.
+
+- **Where:** `DATA_DIR/mission-log.jsonl`, next to `missions.json`. One JSON line per event. A line is never rewritten. A line cut short by a crash is skipped when the log is read.
+- **How to read it:** `GET /api/missions/:id/logs` returns `{ missionId, entries }` for one trip, or 404 for an unknown trip. While the API runs, `Get-Content data\mission-log.jsonl -Wait` (PowerShell) or `tail -f data/mission-log.jsonl` shows events as they are written.
+- **Failures:** a log write that fails is reported on stdout and never undoes the step it records.
+- **Code:** [`src/product/persistence/MissionLog.ts`](src/product/persistence/MissionLog.ts), written from `MissionProductService`.
+
+| Event | Written when | Data |
+|---|---|---|
+| `esim.provisioned` | the eSIM is issued at activation | `isMock`, provider status, the provider's charged baseline, budget |
+| `esim.funded` | a tranche is added to the eSIM wallet | cents funded now and in total |
+| `usage.baseline` | the first provider reading sets the trip's baseline | charged baseline |
+| `usage.reading` | the provider reports more usage than before | charged this trip, eSIM wallet, metered bytes, MB, USDC used, USDC left |
+| `usage.demo_traffic` | the demo button injects traffic | the same totals, plus the injected bytes |
+| `voucher.signed` | a higher meter voucher is accepted | cumulative amount, signer |
+| `escrow.checkpoint` / `escrow.claim` | the backend writes a voucher or collects on the escrow | transaction signature, cumulative amount |
+| `esim.paused` / `esim.resumed` | the traveler pauses or resumes, or the budget runs out | reason |
+| `mission.closed` | the escrow is closed | signature, who sent it, metered bytes, USDC settled and refunded |
+
+Money and byte counts are stored as digit strings. Usage entries are written only when the total goes up, so the polling job does not add a line per tick. The log of the 2026-10-09 real eSIM run is in [docs/evidence/2026-10-09-real-esim-mission-log.txt](docs/evidence/2026-10-09-real-esim-mission-log.txt).
 
 ## Go-to-market and validation
 
@@ -469,14 +492,15 @@ Left out of both sides: the $1.75 issue fee, and the card's 30% percepción. Thi
 | Who signed | The traveler signed only the deposit. Checkpoints, claims, and the close were signed by the payee key. |
 | Wallet | Phantom or any Wallet Standard wallet. The app does not embed a mock wallet. |
 | USDC | Circle's devnet mint, once the traveler holds some. |
-| eSIM | Sample test profile from `FakeProvider`. No line is issued. The Citrus adapter stays behind `CONNECTIVITY_PROVIDER=citrus` and is not called. |
+| eSIM | The public demo uses a sample test profile from `FakeProvider`. No line is issued. The Citrus adapter stays behind `CONNECTIVITY_PROVIDER=citrus`. It ran once, on a laptop on 2026-10-09: a real eSIM issued from the flow, used on a phone, and closed on devnet ([docs/real-esim.md](docs/real-esim.md#run-of-2026-10-09)). |
+| Mission log | Real. Each trip's eSIM, usage readings, vouchers and escrow transactions are appended to `mission-log.jsonl` and served by `GET /api/missions/:id/logs`. See [Mission log](#mission-log). |
 | Budget assistant | Rules in the app (daily limit, 20% warning). No model is called. |
 | Smart plan selection | Planned onboarding. Not implemented. The comparison is under [Smart plan selection](#smart-plan-selection-planned). |
 | Sales channels | Planned. No QR, referral, creator, or wallet deal is live. See [Go-to-market / Sales channels](#go-to-market--sales-channels). |
 
 ## Roadmap
 
-1. **Issue a real eSIM from the flow and close 10 sessions with travelers on a real trip.** Owner: Joel. The Citrus reseller account, API key and balance exist. What is missing is in [docs/real-esim.md](docs/real-esim.md).
+1. **Issue a real eSIM from the flow and close 10 sessions with travelers on a real trip.** Owner: Joel. The first real eSIM was issued and closed on 2026-10-09 ([docs/real-esim.md](docs/real-esim.md#run-of-2026-10-09)). What is left is the 10 sessions with travelers.
 2. Move the upgrade authority and the payee to a 2-of-3 Squads multisig. Owner: Ignacio, who holds the deployer key. What that changes, and what is still trusted today: [Custody and trust model](#custody-and-trust-model).
 3. Return the escrow and vault rent to the traveler at `close`.
 4. Legal review of the draft terms, including the refund rule and the Argentine right of withdrawal (botón de arrepentimiento), then publish a contact for that request.

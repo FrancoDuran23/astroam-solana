@@ -391,6 +391,32 @@ test("what the provider charges becomes metered usage on the next pass", async (
   assert.equal(mission.meteredBytes, "240000000");
 });
 
+test("the mission log follows a trip from the eSIM to the close", async () => {
+  const trip = await openTrip();
+  // $2 charged at a 1.5x markup is 3 USDC: enough for a claim.
+  provider.setChargedUsd(trip.iccid, 2_000_000n);
+  await service.advance(trip.id, clock);
+  await service.settleMission(trip.id);
+
+  const entries = await service.getMissionLog(trip.id);
+  const types = entries.map((e) => e.type);
+  assert.equal(types[0], "esim.provisioned");
+  assert.equal(types.at(-1), "mission.closed");
+  for (const type of ["esim.funded", "usage.reading", "voucher.signed", "escrow.checkpoint", "escrow.claim"] as const) {
+    assert.ok(types.includes(type), `no ${type} entry`);
+  }
+  assert.ok(entries.every((e) => e.iccid === trip.iccid));
+
+  const reading = entries.find((e) => e.type === "usage.reading")!;
+  assert.equal(reading.data.tripChargedMicroUsd, "2000000");
+  assert.equal(reading.data.meteredBytes, "1200000000");
+  assert.equal(entries.find((e) => e.type === "escrow.claim")!.data.cumulativeAtomic, "3000000");
+  const closed = entries.at(-1)!;
+  assert.equal(closed.data.sentBy, "backend");
+  assert.equal(closed.data.settledUsdc, 3);
+  assert.equal(closed.data.refundedUsdc, 7);
+});
+
 test("the job advances every open trip and sweeps what was collected to the treasury", async () => {
   const one = await openTrip();
   const two = await openTrip();
