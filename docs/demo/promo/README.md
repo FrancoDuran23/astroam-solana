@@ -1,6 +1,6 @@
 # Promo video
 
-`promo.html` is a 2:00 animated promo (no audio, 1920x1080) with the 8-bit AstroAm astronaut mascot. Every animation is driven by `window.seek(t)`, so `render.mjs` captures it frame by frame at 30 fps and pipes the frames into ffmpeg.
+`promo.html` is a 2:00 animated promo (no audio, 1920x1080) with the 8-bit AstroAm astronaut mascot. The voice-over, timed to its scenes, is in [pitch-script.md](pitch-script.md). Every animation is driven by `window.seek(t)`, so `render.mjs` captures it frame by frame at 30 fps and pipes the frames into ffmpeg.
 
 ```bash
 cd docs/demo/promo

@@ -396,7 +396,7 @@ Money and byte counts are stored as digit strings. Usage entries are written onl
 
 ## Go-to-market and validation
 
-Who buys, through which channel, at what price and margin: [docs/go-to-market.md](docs/go-to-market.md). Validation so far is desk research and that price comparison. Customer interviews are planned and have not been done: [docs/validation.md](docs/validation.md).
+Who buys, through which channel, at what price and margin: [docs/go-to-market.md](docs/go-to-market.md). Validation so far: that price comparison, 10 interviews with travelers from Jujuy (2026-10-10), and messages to two Jujuy travel agencies that have not answered yet. Notes, counts, and limits: [docs/validation.md](docs/validation.md). In short, 5 of 10 skipped mobile data abroad and relied on Wi-Fi, 3 of 10 left part of a pack unused, and 4 of 10 already hold digital dollars (in Lemon, Belo, or Binance, not a Solana wallet). No traveler has deposited yet.
 
 The USDC-per-GB figures below are the go-to-market rates: reseller cost of the cheapest network, times 1.5 (`MARKUP_BPS=15000`). Those costs were read on 7 October 2026. The card, roaming, and retail quotes were read on 8 October 2026, between 01:20 and 02:10 ART. The sample rates in the app (`pricePerMbUsdc`, Brazil 0.0025 USDC per MB) are examples for a demo with no live carrier. They are not this comparison.
 
@@ -412,7 +412,7 @@ A later onboarding step, not built yet, would ask trip length and a usage profil
 
 ### Go-to-market / Sales channels
 
-**Planned. Nothing here is running.** As of 8 October 2026 no terminal, agency, creator, or wallet company has been contacted, no QR is up, and no referral fee has been paid. The same plan is in [docs/go-to-market.md](docs/go-to-market.md).
+**Planned. Nothing here is running.** On 10 October 2026 two travel agencies in San Salvador de Jujuy, Las Salinas Viajes y Turismo and Nasa Turismo, were invited by WhatsApp to a free referral pilot. Neither has answered yet ([outreach log](docs/validation.md#4-distribution-channel--agency-outreach-log)). No terminal, creator, or wallet company has been contacted, no QR is up, and no referral fee has been paid. The same plan is in [docs/go-to-market.md](docs/go-to-market.md).
 
 These five are how AstroAm would reach an Argentine traveler leaving for Chile, Brazil, Uruguay, Paraguay, or Bolivia. CAC is cash spent on that channel divided by travelers who finish a deposit. Conversion is deposits divided by the scans, links, or referrals that channel produced. The pilot ask is still ten real trips in 60 days.
 
@@ -514,7 +514,8 @@ Left out of both sides: the $1.75 issue fee, and the card's 30% percepción. Thi
 | Mission log | Real. Each trip's eSIM, usage readings, vouchers and escrow transactions are appended to `mission-log.jsonl` and served by `GET /api/missions/:id/logs`. See [Mission log](#mission-log). |
 | Budget assistant | Rules in the app (daily limit, 20% warning). No model is called. |
 | Smart plan selection | Planned onboarding. Not implemented. The comparison is under [Smart plan selection](#smart-plan-selection-planned). |
-| Sales channels | Planned. No QR, referral, creator, or wallet deal is live. See [Go-to-market / Sales channels](#go-to-market--sales-channels). |
+| Sales channels | Planned. Two Jujuy travel agencies were invited to a referral pilot on 2026-10-10 and have not answered. No QR, referral, creator, or wallet deal is live. See [Go-to-market / Sales channels](#go-to-market--sales-channels). |
+| Traveler validation | 10 interviews with travelers from Jujuy, 2026-10-10: [docs/validation.md](docs/validation.md). Stated interest, not deposits. |
 
 ## Roadmap
 
