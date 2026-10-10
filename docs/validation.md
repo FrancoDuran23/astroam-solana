@@ -47,5 +47,13 @@ Conversations were conducted with travelers who visited neighboring countries (B
 
 ## 4. Distribution Channel / Agency Outreach Log
 
-- **Target Partner:** Las Salinas Viajes y Turismo / Nasa Turismo (San Salvador de Jujuy)
-- **Status:** Message scheduled for outreach. Details will be logged upon sending.
+**Goal:** Reach out to local travel agencies in Jujuy / NOA operating outbound travel to Brazil, Chile, and neighboring countries to test interest in a pilot referral model.
+
+| # | Agency Partner | Location & Contact | Date Sent | Channel | Status & Response | Evidence |
+|---|----------------|--------------------|-----------|---------|-------------------|----------|
+| 1 | **Las Salinas Viajes y Turismo** | San Salvador de Jujuy<br>+54 9 388 433-8615 | 2026-10-10 | WhatsApp Business | Message delivered (two checkmarks). Awaiting response. | ![Las Salinas Outreach](img/agency-las-salinas.png) |
+| 2 | **Nasa Turismo** (Norte Argentino S.A.) | San Salvador de Jujuy<br>+54 9 388 460-7679 | 2026-10-10 | WhatsApp Business | Message delivered (two checkmarks). Awaiting response. | ![Nasa Turismo Outreach](img/agency-nasa-turismo.png) |
+
+### Verbatim Outreach Pitch Sent:
+> *"Hola gente de Las Salinas / Nasa Turismo, ¿cómo están? Les escribo desde Jujuy. Estamos desarrollando AstroAm, una solución de conectividad eSIM pensada para viajeros argentinos a Brasil y Sudamérica, donde el pasajero solo paga los megas que realmente usa y se le reembolsa automáticamente lo que le sobra. Queríamos invitarlos a un piloto sin costo: ofrecerles a sus pasajeros conectividad directa antes de salir, y la agencia recibe una comisión directa en dólares por cada activación..."*
+
