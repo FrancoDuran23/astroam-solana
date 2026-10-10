@@ -1,0 +1,20 @@
+AstroAm mission log: real Citrus eSIM run, 2026-10-09
+Mission mis_1791579588979_k5k4wl · destination Argentina · budget 2 USDC · program HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk (devnet)
+Source: DATA_DIR/mission-log.jsonl, written by the API (src/product/persistence/MissionLog.ts). ICCID middle digits hidden.
+Explained in docs/real-esim.md.
+
+EVENTS (UTC)
+2026-10-09T21:00:20.798Z  esim.provisioned   isMock=false  providerStatus=provisioned  chargedBaselineMicroUsd=0  budgetUsdc=2
+2026-10-09T21:00:21.627Z  esim.funded        amountCents=133  fundedCents=133
+2026-10-09T21:21:08.876Z  usage.reading      tripChargedMicroUsd=190000  walletMicroUsd=1110000  providerStatus=active  meteredBytes=109615384  consumedMb=109.62  consumedUsdc=0.285  balanceUsdc=1.715
+2026-10-09T21:21:08.905Z  voucher.signed     cumulativeAtomic=284999  signer=3WqaNhVVCCnabBLGA9YWviQHDvo6fTmX1Y9otcmsdB7k
+2026-10-09T21:21:12.370Z  escrow.checkpoint  txHash=5hSbPPHgQmdoXBGf9ViDk7p6KNy5KFEfNswTFbMfwY1RceGtpEkMqZoLQfvjFq7ApfvAUxWGTosCNDrZ1KqHaBc7  cumulativeAtomic=284999
+2026-10-09T21:21:42.558Z  mission.closed     txHash=4z7z7gFieZw94wTQLPPJ1is895nBNr58VUfrzhBTridPLKLCVvPLGdFz4Lk1A1ZFacw48Hfp6HXR5748uzBHCGfL  settlement=close  sentBy=backend  reason=traveler  meteredBytes=109615384  settledUsdc=0.284999  refundedUsdc=1.715001
+
+RAW JSONL (one line per event, as the API wrote it, ICCID masked)
+{"v":1,"at":"2026-10-09T21:00:20.798Z","missionId":"mis_1791579588979_k5k4wl","iccid":"891030*********8224","type":"esim.provisioned","data":{"isMock":false,"providerStatus":"provisioned","chargedBaselineMicroUsd":"0","budgetUsdc":2}}
+{"v":1,"at":"2026-10-09T21:00:21.627Z","missionId":"mis_1791579588979_k5k4wl","iccid":"891030*********8224","type":"esim.funded","data":{"amountCents":133,"fundedCents":133}}
+{"v":1,"at":"2026-10-09T21:21:08.876Z","missionId":"mis_1791579588979_k5k4wl","iccid":"891030*********8224","type":"usage.reading","data":{"tripChargedMicroUsd":"190000","walletMicroUsd":"1110000","providerStatus":"active","meteredBytes":"109615384","consumedMb":109.62,"consumedUsdc":0.285,"balanceUsdc":1.715}}
+{"v":1,"at":"2026-10-09T21:21:08.905Z","missionId":"mis_1791579588979_k5k4wl","iccid":"891030*********8224","type":"voucher.signed","data":{"cumulativeAtomic":"284999","signer":"3WqaNhVVCCnabBLGA9YWviQHDvo6fTmX1Y9otcmsdB7k"}}
+{"v":1,"at":"2026-10-09T21:21:12.370Z","missionId":"mis_1791579588979_k5k4wl","iccid":"891030*********8224","type":"escrow.checkpoint","data":{"txHash":"5hSbPPHgQmdoXBGf9ViDk7p6KNy5KFEfNswTFbMfwY1RceGtpEkMqZoLQfvjFq7ApfvAUxWGTosCNDrZ1KqHaBc7","cumulativeAtomic":"284999"}}
+{"v":1,"at":"2026-10-09T21:21:42.558Z","missionId":"mis_1791579588979_k5k4wl","iccid":"891030*********8224","type":"mission.closed","data":{"txHash":"4z7z7gFieZw94wTQLPPJ1is895nBNr58VUfrzhBTridPLKLCVvPLGdFz4Lk1A1ZFacw48Hfp6HXR5748uzBHCGfL","settlement":"close","sentBy":"backend","reason":"traveler","meteredBytes":"109615384","settledUsdc":0.284999,"refundedUsdc":1.715001}}

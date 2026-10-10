@@ -1,8 +1,33 @@
 # From a sample eSIM to a real one
 
-**Date:** 2026-10-07 · **Status:** not done. Nothing here has run against the live Citrus API from this repo. Owner: Joel.
+**Date:** 2026-10-07, updated 2026-10-09 · **Status:** one controlled run done on 2026-10-09 (below). The public demo still uses the sample profile. Owner: Joel.
 
-The escrow is real: it is deployed on devnet and a full session is linked in the [README](../README.md#live-on-devnet). The eSIM is not. This page lists what is simulated today, why setting the Citrus key alone does not produce a working line, and the steps for one controlled real run.
+The escrow is real: it is deployed on devnet and a full session is linked in the [README](../README.md#live-on-devnet). On 2026-10-09 one real Citrus eSIM was issued from the flow, used on a phone, and settled on devnet. This page records that run, lists what is still simulated in the public demo, why setting the Citrus key alone does not produce a working line, and the steps to repeat the run.
+
+## Run of 2026-10-09
+
+Run by Ignacio on a laptop, following [One controlled real run](#one-controlled-real-run), with `CONNECTIVITY_PROVIDER=citrus`, the operator and meter keys of the program in `.env.example`, `ENABLE_DEMO_TRAFFIC=false` and `CLAIM_MIN_USDC=0.5`. The eSIM was installed on a phone in Argentina and used for mobile data. Mission `mis_1791579588979_k5k4wl`, destination Argentina, budget 2 USDC.
+
+| Step | Time (UTC) | Evidence |
+|---|---|---|
+| Deposit, 2 USDC, signed in Phantom | 21:00:11 | [5PPimRAd…98DtDT](https://explorer.solana.com/tx/5PPimRAd4i2Kdd3RccjZquZeTXanYiZGxbvYzr5KGJfhVixJBnz9sYQephhbuKuTjLYvQNTaPmFd2v57Ei98DtDT?cluster=devnet). Escrow `D68cVrupJ283y4rGvpbmz9tzcPEtCCq9EPNyLH2kzdqV` |
+| Real eSIM issued by Citrus | 21:00:20 | ICCID `891030*********8224`, `isMock=false` |
+| eSIM wallet funded | 21:00:21 | One tranche of $1.33, the most a 2 USDC deposit pays for at the 1.5× markup |
+| First usage reading from Citrus | 21:21:08 | Citrus charged $0.19 on this eSIM. At the 1.5× markup that is 0.285 USDC. At the app's Argentina rate (0.0026 USDC/MB) the API counts it as 109.62 MB equivalent. Citrus reports dollars charged, not bytes, so the megabytes are derived, not measured |
+| Meter voucher and checkpoint | 21:21:08 | The meter key signed 0.284999 USDC. [5hSbPPHg…HaBc7](https://explorer.solana.com/tx/5hSbPPHgQmdoXBGf9ViDk7p6KNy5KFEfNswTFbMfwY1RceGtpEkMqZoLQfvjFq7ApfvAUxWGTosCNDrZ1KqHaBc7?cluster=devnet) |
+| Close, sent by the backend when the trip was ended in the app | 21:21:39 | [4z7z7gFi…HCGfL](https://explorer.solana.com/tx/4z7z7gFieZw94wTQLPPJ1is895nBNr58VUfrzhBTridPLKLCVvPLGdFz4Lk1A1ZFacw48Hfp6HXR5748uzBHCGfL?cluster=devnet): 0.284999 USDC to the payee, 1.715001 USDC back to the traveler |
+
+All three transactions were read back with `getTransaction` on `https://api.devnet.solana.com`: no error, and each one calls `HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk`. The token balances in the close match the log: the vault went from 2 to 0, the payee gained 0.284999 and the traveler 1.715001.
+
+The full mission log the API wrote during the run is in [evidence/2026-10-09-real-esim-mission-log.txt](evidence/2026-10-09-real-esim-mission-log.txt). How that log works is in the [README](../README.md#mission-log).
+
+What this run shows, and what it does not:
+
+- It shows the whole path once with a real line: issue, fund, a usage reading from the provider, a meter voucher, a checkpoint and a close that refunds the rest, with no signature from the traveler after the deposit.
+- No `claim` was sent: 0.285 USDC was under the 0.5 USDC claim threshold, so the close paid the whole amount.
+- The first reading took about 21 minutes after the funding, in line with Citrus's reporting delay.
+- The close asks Citrus to return the unused eSIM balance ($1.11 at the last reading) to the reseller account. That return is not in the mission log and was not checked.
+- It is one run by a team member, not a traveler on a trip. The roadmap item is still 10 sessions with travelers.
 
 ## What is simulated today
 
