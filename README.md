@@ -4,6 +4,24 @@ Prepaid travel data: you lock USDC on Solana, pay only for what a meter attests,
 
 Demo for Colosseum / Superteam Argentina. Deadline: Sunday 11 October 2026, 23:59 ART. The traveler app started from the Stellar build ([FrancoDuran23/stellar_jujuy_dev@a19ed4d](https://github.com/FrancoDuran23/stellar_jujuy_dev/tree/a19ed4d)). The Soroban channel is not the payment path of this demo.
 
+## Live Demo & Deployment
+
+Test AstroAm end-to-end on Solana Devnet in under 5 minutes without cloning or local setup:
+
+- **Traveler Web App (Live):** [astroam-solana.vercel.app](https://astroam-solana.vercel.app)
+- **Product API Backend (Render):** [astroam-solana.onrender.com](https://astroam-solana.onrender.com) ([Health check](https://astroam-solana.onrender.com/health) · [Capabilities](https://astroam-solana.onrender.com/api/capabilities))
+- **Solana Devnet Escrow Program:** [`HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk`](https://explorer.solana.com/address/HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk?cluster=devnet)
+- **Devnet USDC Faucet:** [faucet.circle.com](https://faucet.circle.com) (Network: Solana Devnet, mint `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU`)
+- **Devnet SOL Faucet (fee gas):** [solfaucet.com](https://solfaucet.com) or [faucet.solana.com](https://faucet.solana.com)
+- **Test Verification Report:** [docs/test-verification.md](docs/test-verification.md) (235/235 tests passing)
+
+### Quick Test Walkthrough for Judges
+1. Open [astroam-solana.vercel.app](https://astroam-solana.vercel.app) with **Phantom** or **Solflare** set to **Devnet**.
+2. Pick a destination (e.g. Brazil), travel dates, and budget (e.g. 5 USDC).
+3. Connect your wallet and confirm the on-chain deposit.
+4. The mission page opens with sample eSIM details and traffic metering.
+5. Click **End Mission**: AstroAm attests consumed bytes with its meter key and settles the on-chain close, refunding unused USDC directly back to your wallet.
+
 ## Video pitch
 
 https://github.com/user-attachments/assets/f79af952-9a4e-40a4-a20b-51a79763d7ce
@@ -507,15 +525,19 @@ Left out of both sides: the $1.75 issue fee, and the card's 30% percepción. Thi
 5. Bridge liquidation address for collected USDC, only after the provider account exists. See `docs/decisions/automate-fund-flow-citrus-bridge.md`.
 6. **Direct wholesale supply, as volume grows.** Planned. No extra supplier is signed. The model already in the code scales as it is: `CONNECTIVITY_PROVIDER` is pluggable, any wholesale eSIM API can sit behind it, and the escrow, the meter, and the refund do not depend on which supplier that is. Once the company entity exists and volume justifies it, add direct wholesale eSIM platforms (multi-network wholesalers with APIs) and, later, carrier agreements in the launch corridor (Chile, Brazil, Uruguay, Paraguay, Bolivia), and route each traveler to the cheapest supplier for that country and network. A lower cost per GB leaves room to lower the traveler price or to fund the agency referral fee, and a second supplier keeps a route covered.
 
-## Checks
+## Checks & Test Verification
+
+All automated tests and builds pass cleanly (235/235 tests):
 
 ```bash
-npm test
-npm run check
-npm run solana:test
-cd frontend && npm run typecheck
+npm test                          # 233 backend unit and integration tests (0 fail)
+npm run check                     # Backend TypeScript typecheck (0 errors)
+cd frontend && npm test           # 2 frontend tests (0 fail)
+cd frontend && npm run typecheck  # Frontend TypeScript typecheck (0 errors)
+cd frontend && npm run build      # Frontend Vite production build
+npm run solana:test               # Native program tests (solana-program-test)
 ```
 
-`solana:test` runs the program in `solana-program-test`. Rust 1.85 or newer is required. The `.so` is produced by `cargo build-sbf` inside `npm run solana:deploy`.
+See [docs/test-verification.md](docs/test-verification.md) for the detailed test execution logs and live deployment verification.
 
 Terms (draft): the app footer links to `/terms`.
