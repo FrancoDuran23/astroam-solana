@@ -19,7 +19,7 @@ Every claim is backed in the repo. If one of them changes, change the line, not 
 
 | Claim | Source |
 |---|---|
-| 30% percepción on card payments; 2.48 USDC/GB; at least 21% below the cheapest card eSIM in Chile, Brazil and Uruguay; 60% or more below a half-used pack; 0.83 USDC/GB margin | [README, pricing](../../../README.md#pricing-vs-what-argentine-travelers-pay-today) |
+| 30% percepción on card payments; 2.48 USDC/GB; half-used Brazil 5 GB pack: 60% below the cheapest card eSIM with 30% percepción; full-use Brazil 5 GB: 21% below the same card eSIM baseline; 0.83 USDC/GB margin | [README, pricing](../../../README.md#pricing-vs-what-argentine-travelers-pay-today) |
 | 10 USDC, 0.625 used, 9.375 back | Example at the app's Brazil rate |
 | Timeout pays what was measured, refunds the rest | `programs/astroam-escrow/src/lib.rs`, [README, Solution](../../../README.md#solution) |
 | 22 program tests | `programs/astroam-escrow/tests/escrow.rs` |
@@ -46,7 +46,7 @@ Do not say:
 | 0:47–0:55 | Example | "Deposit ten USDC and use 250 megabytes in Brazil: one close pays 0.625, and sends 9.375 back to your wallet." |
 | 0:55–1:02 | Trust | "We can't charge more than your deposit. After seven days, anyone can close: what you used is paid, the rest comes back." |
 | 1:02–1:16 | Evidence | "It runs on Solana devnet today: 22 program tests, and one real Citrus eSIM issued from the flow in a controlled run and settled on-chain. We interviewed ten travelers from Jujuy: half skip mobile data abroad; four already hold digital dollars." |
-| 1:16–1:35 | Customer and business | "Our customer: the Argentine traveler to Chile, Brazil and Uruguay. They pay 2.48 USDC per gigabyte used: at least 21 percent below the cheapest card eSIM, and 60 percent or more when they use half. We keep 0.83 per gigabyte. Our first channel: travel agencies in Jujuy." |
+| 1:16–1:35 | Customer and business | "Our customer: the Argentine traveler to Chile, Brazil and Uruguay. At 2.48 USDC per gigabyte, if you use half a Brazil pack you pay 60 percent less than a card eSIM with the 30 percent percepción. Even at full use, that card eSIM costs 21 percent more. We keep 0.83 per gigabyte. Our first channel: travel agencies in Jujuy." |
 | 1:35–1:47 | Team | "We're four builders from Jujuy: Franco, escrow program and backend. Ignacio, eSIM connectivity. Daniel, metering and the interviews. Joel, the app. We live next to the border. We are the traveler." |
 | 1:47–2:00 | Next milestone and close | "Next: ten real trips with Argentine travelers, a Squads multisig, then mainnet. AstroAm. Travel connected. Pay only for what you use." |
 
