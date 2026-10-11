@@ -24,7 +24,9 @@ Test AstroAm end-to-end on Solana Devnet in under 5 minutes without cloning or l
 
 ## Video pitch
 
-[`docs/demo/AstroAm-pitch-EN.mp4`](docs/demo/AstroAm-pitch-EN.mp4) (1:58, English subtitles burned in; also as [`.srt`](docs/demo/AstroAm-pitch-EN.srt)). The animation is rendered from [`docs/demo/promo`](docs/demo/promo/README.md), and the voice-over follows [`pitch-script.md`](docs/demo/promo/pitch-script.md).
+[![AstroAm pitch on YouTube: pay only for the data you use](docs/demo/AstroAm-pitch-thumbnail.jpg)](https://youtu.be/q7B5czCrMdw)
+
+Watch on YouTube: [youtu.be/q7B5czCrMdw](https://youtu.be/q7B5czCrMdw). Also in the repo: [`docs/demo/AstroAm-pitch-EN.mp4`](docs/demo/AstroAm-pitch-EN.mp4) (1:58, English subtitles burned in; also as [`.srt`](docs/demo/AstroAm-pitch-EN.srt)). The animation is rendered from [`docs/demo/promo`](docs/demo/promo/README.md), and the voice-over follows [`pitch-script.md`](docs/demo/promo/pitch-script.md).
 
 ## Problem
 
