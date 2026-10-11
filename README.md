@@ -4,6 +4,8 @@ Prepaid travel data: you lock USDC on Solana, pay only for what a meter attests,
 
 Demo for Colosseum / Superteam Argentina. Deadline: Sunday 11 October 2026, 23:59 ART. The traveler app started from the Stellar build ([FrancoDuran23/stellar_jujuy_dev@a19ed4d](https://github.com/FrancoDuran23/stellar_jujuy_dev/tree/a19ed4d)). The Soroban channel is not the payment path of this demo.
 
+> **Submission scope.** The team's history includes earlier builds on EVM (Monad) and Stellar/Soroban. Those are **not** the version being submitted to Colosseum. Only the Solana escrow program in `programs/astroam-escrow`, this backend, and this frontend are the submitted work.
+
 ## Live Demo & Deployment
 
 Try the AstroAm flow (deposit, usage, close, refund) on Solana Devnet in under 5 minutes without cloning or local setup:
@@ -156,6 +158,29 @@ Team of four, based in Jujuy, Argentina, working full-time remote.
 ### Custody and trust model
 
 This is what `programs/astroam-escrow` does on devnet program `HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk`. A Squads multisig, a frozen upgrade authority, and a timelock are planned below. None of them is deployed.
+
+#### Data and money flow (current, devnet)
+
+```mermaid
+graph LR
+    A["Frontend (wallet)"] -->|"deposit USDC"| B["Backend API"]
+    B -->|"meter voucher (ed25519)"| B
+    B -->|"checkpoint / claim / close"| C["Solana program"]
+    C -->|"eSIM fund tranche"| D["Citrus (eSIM provider)"]
+    C -->|"refund unused"| A
+```
+
+*Front* = Phantom or Solflare signing the deposit. *API / meter* = backend that reads usage and signs the cumulative voucher. *Program* = `HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk` on devnet. *Citrus* = eSIM provider (only active when `CONNECTIVITY_PROVIDER=citrus`; the public demo uses the sample profile).
+
+#### What changes with the Squads multisig (planned, not deployed)
+
+All items below are in the plan. None is implemented.
+
+- The upgrade authority moves from one team key to the 2-of-3 Squads multisig (Franco Durán, Ignacio Martín, Daniel Palermo). Program upgrades would then require 2 of 3 signers.
+- The payee moves to the multisig treasury. Because there is no `set_payee` instruction, this requires a new deployment or a sweep of USDC already collected by the current payee.
+- Settled USDC flows from the payee to the multisig treasury, which funds the USD card that pays the eSIM provider.
+- Before mainnet, upgrades may be frozen or a timelock added.
+- The meter key stays separate from the multisig and rotates into a dedicated signer service. A rotation needs a new deployment or an upgrade, because no instruction changes the meter key in this program.
 
 **Where the USDC sits.** `deposit` opens two accounts for that trip. The escrow PDA (`["escrow", escrow id]`) is owned by the program and stores the traveler. The vault PDA (`["vault", escrow id]`) is the SPL token account that holds the USDC. The Token program owns the vault account. Its token authority is the escrow PDA, and the program signs transfers out as that PDA. The deposit credits that vault. It does not credit a team wallet.
 
@@ -501,6 +526,15 @@ Worked example, a 5 GB block in Chile, Brazil, or Uruguay: `5 × 1.84 / 2.48 = 3
 The share is about 1/1.35 (74%) because the traveler's pay-per-MB rate is the retail rate times 1.35. The table uses the rounded prices published above, so the shares land between 74.1% and 74.3%.
 
 Left out of both sides: the $1.75 issue fee, and the card's 30% percepción. This comparison is retail dollars against AstroAm USDC. The per-profile gigabyte estimates (how many GB a week of maps, or of video calls, actually is) are not in the repo, so they are not stated here.
+
+## What is real today
+
+| Item | Status |
+|---|---|
+| Solana devnet program | `HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk`, deployed and initialized |
+| Program tests | 22 tests in `solana-program-test`, all passing |
+| Real Citrus eSIM run | One controlled run by a team member on 2026-10-09 (not a traveler on a trip): eSIM issued, used on a phone, and closed on devnet. Details and explorer links: [docs/real-esim.md](docs/real-esim.md#run-of-2026-10-09) |
+| Everything else | Sample or simulated (FakeProvider eSIM, devnet USDC, demo traffic button). See the table below. |
 
 ## What is real, and what is not
 
