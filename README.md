@@ -6,7 +6,7 @@ Demo for Colosseum / Superteam Argentina. Deadline: Sunday 11 October 2026, 23:5
 
 ## Live Demo & Deployment
 
-Test AstroAm end-to-end on Solana Devnet in under 5 minutes without cloning or local setup:
+Try the AstroAm flow (deposit, usage, close, refund) on Solana Devnet in under 5 minutes without cloning or local setup:
 
 - **Traveler Web App (Live):** [astroam-solana.vercel.app](https://astroam-solana.vercel.app)
 - **Product API Backend (Render):** [astroam-solana.onrender.com](https://astroam-solana.onrender.com) ([Health check](https://astroam-solana.onrender.com/health) · [Capabilities](https://astroam-solana.onrender.com/api/capabilities))
@@ -36,7 +36,7 @@ Roaming plans are sold in big blocks. A weekend trip still pays for a week or a 
 
 You pick a country and a USDC budget. One wallet transaction deposits Circle devnet USDC into an escrow the program owns. Usage is measured off-chain. AstroAm's meter key signs a running total. One close pays that total to AstroAm and sends the remainder back. If nobody closes, a timeout does the same split after 7 days.
 
-The eSIM screen in this demo is a sample profile. A live carrier is not connected. One real Citrus eSIM was issued from this flow on 2026-10-09 and settled on devnet: see [docs/real-esim.md](docs/real-esim.md#run-of-2026-10-09).
+The eSIM screen in this demo is a sample profile. A live carrier is not connected. One real Citrus eSIM was issued from this flow in a single controlled run by a team member on 2026-10-09 (not a traveler on a trip) and settled on devnet; it has not been tested beyond that run. Evidence: [docs/real-esim.md](docs/real-esim.md#run-of-2026-10-09).
 
 The native program in `programs/astroam-escrow` does not debit per megabyte:
 
