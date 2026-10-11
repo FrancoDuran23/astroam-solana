@@ -163,14 +163,18 @@ This is what `programs/astroam-escrow` does on devnet program `HgrzvLkRfWaH5t4NT
 
 ```mermaid
 graph LR
-    A["Frontend (wallet)"] -->|"deposit USDC"| B["Backend API"]
-    B -->|"meter voucher (ed25519)"| B
-    B -->|"checkpoint / claim / close"| C["Solana program"]
-    C -->|"eSIM fund tranche"| D["Citrus (eSIM provider)"]
-    C -->|"refund unused"| A
+    Traveler["Traveler wallet"] -->|"deposit USDC"| Program["Solana program"]
+    Meter["Meter key (off-chain)"] -->|"cumulative voucher (ed25519)"| API["Backend API"]
+    API -->|"checkpoint / claim / close"| Program
+    API -->|"fund eSIM tranche (API)"| Citrus["Citrus (eSIM provider)"]
+    Program -->|"refund unused USDC"| Traveler
+    Program -->|"settled USDC (claim / close)"| Payee["Payee account"]
+    Payee -->|"card top-up (manual today / Bridge planned)"| Citrus
 ```
 
-*Front* = Phantom or Solflare signing the deposit. *API / meter* = backend that reads usage and signs the cumulative voucher. *Program* = `HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk` on devnet. *Citrus* = eSIM provider (only active when `CONNECTIVITY_PROVIDER=citrus`; the public demo uses the sample profile).
+*Traveler* = Phantom or Solflare signing the deposit. *Meter key* = off-chain ed25519 key signing cumulative vouchers. *API* = backend that reads usage and submits settlement transactions. *Program* = `HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk` on devnet. *Payee* = team account receiving settled USDC. *Citrus* = eSIM provider (only active when `CONNECTIVITY_PROVIDER=citrus`; the public demo uses the sample profile).
+
+Not automated yet: moving settled USDC from the payee into USD and refilling the Citrus reseller balance (card top-up in the Citrus dashboard is manual today; Bridge liquidation address and Squads multisig treasury are planned).
 
 #### What changes with the Squads multisig (planned, not deployed)
 
