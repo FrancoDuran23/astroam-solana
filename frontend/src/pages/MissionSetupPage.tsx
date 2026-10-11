@@ -195,7 +195,7 @@ export default function MissionSetupPage() {
           <span className="font-mono text-[11px] font-bold text-starlight tracking-widest uppercase block mb-2">[ UNFINISHED TRIP ]</span>
           <p className="font-sans text-sm text-textsecondary mb-4 leading-relaxed">
             Your {stalledTrip.destination.name} deposit of {stalledTrip.budgetUsdc} USDC went through but the eSIM was never activated.
-            Activate it now, or cancel and get the whole deposit back.
+            Activate it now, or cancel. If the deposit is in the Solana escrow, use the close or timeout refund in Phantom or Solflare to recover it — the app cannot trigger the on-chain refund directly.
           </p>
           <div className="flex flex-col sm:flex-row gap-3">
             <button
