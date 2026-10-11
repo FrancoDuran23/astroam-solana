@@ -50,6 +50,10 @@ Do not say:
 | 1:35–1:47 | Team | "We're four builders from Jujuy: Franco, escrow program and backend. Ignacio, eSIM connectivity. Daniel, metering and the interviews. Joel, the app. We live next to the border. We are the traveler." |
 | 1:47–2:00 | Next milestone and close | "Next: ten real trips with Argentine travelers, a Squads multisig, then mainnet. AstroAm. Travel connected. Pay only for what you use." |
 
+## Recorded cut (2026-10-10)
+
+[`../AstroAm-pitch-EN.mp4`](../AstroAm-pitch-EN.mp4), 1:58, with English subtitles in [`../AstroAm-pitch-EN.srt`](../AstroAm-pitch-EN.srt). The scene times in `promo.html` follow this take, not the table above. In the take, "We can't charge more than your deposit" came out as "We can charge…", so that sentence is cut; the "Never more" card on screen still states the cap.
+
 ## Recording checklist
 
 1. Record facing the camera, with even light and a quiet room. The face goes in a column on the left of the final video, so frame head and shoulders with some space around them.
