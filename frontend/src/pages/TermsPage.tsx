@@ -41,6 +41,19 @@ export default function TermsPage() {
           </header>
 
           <section className="flex flex-col gap-3">
+            <h2 className="font-display text-2xl font-bold text-textprimary">How consumed data is calculated</h2>
+            <p className="leading-relaxed">
+              AstroAm measures data through a meter voucher. After each usage reading the backend signs a cumulative amount in USDC — the total charged for your trip so far. That signed amount is written on the Solana escrow as a checkpoint.
+            </p>
+            <ul className="list-disc pl-5 flex flex-col gap-2 leading-relaxed">
+              <li>The meter voucher is an ed25519 signature over <span className="font-mono text-xs">(program id, escrow id, cumulative USDC)</span>. The program verifies the signature before accepting any amount.</li>
+              <li>The charge is <strong>capped at your deposit</strong>. The program rejects any voucher above the deposited amount, so you cannot be charged more than you put in.</li>
+              <li>Usage is reported by the eSIM provider (Citrus Mobile) approximately every 10 minutes. The amount on screen may lag real usage by that interval.</li>
+              <li>In the public demo the eSIM is a sample profile. The "Use 250 MB" button injects traffic for testing. In a live session with <span className="font-mono text-xs">CONNECTIVITY_PROVIDER=citrus</span>, usage is what the provider reports.</li>
+            </ul>
+          </section>
+
+          <section className="flex flex-col gap-3">
             <h2 className="font-display text-2xl font-bold text-textprimary">Refund rule</h2>
             <p className="leading-relaxed">
               You deposit USDC into an escrow that the program owns. AstroAm cannot move that balance with a normal wallet transfer.
