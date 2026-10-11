@@ -67,6 +67,39 @@ On a traveler's first trip that fee has to be earned back before the trip makes 
 
 A short first trip loses money at this price. The options are a one-time activation fee of 1.75 USDC taken from the first deposit, or accepting the loss as the cost of acquiring the traveler. This is not decided.
 
+### Unit economics per trip
+
+**Formula (Brazil, cheapest network, first trip):**
+
+```
+Revenue per trip = GB used × 0.83 USDC margin per GB
+                  minus the eSIM issuance cost (US$1.75 one-time, first trip only)
+```
+
+The 0.83 USDC/GB margin is from the cost table above (cost 1.65 USD/GB × 1.5 markup = 2.48 USDC/GB traveler price; 2.48 − 1.65 = 0.83). The US$1.75 issuance cost is Citrus's per-eSIM charge, stated in [The fixed cost](#the-fixed-cost) above. Source: Citrus reseller rates, read 2026-10-07.
+
+**Break-even GB (first trip, eSIM cost not yet amortized):**
+
+```
+Break-even GB = issuance cost / margin per GB
+              = 1.75 / 0.83 ≈ 2.1 GB
+```
+
+A first trip in Brazil needs about 2.1 GB of actual data use for revenue to cover the eSIM fee. Subsequent trips on the same eSIM have no issuance cost, so every gigabyte contributes the full 0.83 USDC margin.
+
+**Example: half-used 5 GB deposit, Brazil, first trip:**
+
+```
+GB used        = 2.5 GB (half of a 5 GB deposit)
+Gross margin   = 2.5 × 0.83  = 2.075 USDC
+Issuance cost  =               1.75 USD  (one-time, first trip)
+Net margin     = 2.075 − 1.75 = 0.325 USDC
+```
+
+The same trip on a return traveler (no issuance cost): 2.5 × 0.83 = 2.075 USDC net margin. On a second and later trips the issuance cost does not appear.
+
+**Agency commission:** The referral commission for travel agencies is a proposal expressed as a percentage of the per-GB margin. The exact percentage is not set and the automatic payment to agencies is not built. See [Channels, in order](#channels-in-order) and the outreach log in [validation.md](validation.md#4-distribution-channel--agency-outreach-log).
+
 ### Other costs
 
 - **Solana fees.** 0.000065 SOL for a whole session of seven transactions, measured on devnet.
