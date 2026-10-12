@@ -159,7 +159,7 @@ Team of four, based in Jujuy, Argentina, working full-time remote.
 | Daniel Palermo | [@DanielPalermoo](https://github.com/DanielPalermoo) | Backend and metering | Traffic meter, Soroban adapter, and CosmoPay gateway (Stellar build) |
 | Joel Santos | [@Joel010999](https://github.com/Joel010999) | Frontend | Traveler app, mobile, eSIM flow in the UI, and product API (Stellar build) |
 
-### Custody and trust model
+### Custody and key details
 
 This is what `programs/astroam-escrow` does on devnet program `HgrzvLkRfWaH5t4NTaLpv952YXZdzsrmZrC9NZVSoRmk`. A Squads multisig, a frozen upgrade authority, and a timelock are planned below. None of them is deployed.
 
@@ -215,6 +215,55 @@ solana program set-upgrade-authority <PROGRAM_ID> \
 ```
 
 **Why this is not custody of traveler funds.** This describes the program. It is not legal advice. While an escrow is open, the traveler's USDC is in that trip's vault, and the token authority is the escrow PDA. The program pays the configured payee only an attested amount up to the deposit, and returns the remainder to the traveler on `close` or, after the timeout, on `refund`. That balance is not lent and it earns no yield. What the key holders still have is the upgrade authority, which can change the program, and the meter key, which can over-attest up to the deposit. USDC already paid to the payee has left the vault. Moving the payee and the upgrade authority to the 2-of-3 multisig is planned and is not done. Whether a regulator would still treat any part of this as custody of third-party funds, including PSAV registration with the CNV in Argentina, is a legal question. This README does not answer it.
+
+## Trust model
+
+Short version of what you have to trust today, and what the program enforces whatever the team does. The line-by-line detail is in [Custody and key details](#custody-and-key-details) under Architecture; the program is `programs/astroam-escrow/src/lib.rs`. Everything below is about the devnet deployment. A Squads multisig, a frozen upgrade authority, and a timelock are planned and **not deployed**.
+
+```mermaid
+flowchart LR
+    F["Front (traveler wallet)"] -->|"deposit USDC, signed by the traveler"| P
+    F --> A["API / meter (off-chain)"]
+    A -->|"reads usage"| C["Citrus (eSIM provider)"]
+    A -->|"ed25519 voucher signed by the meter key"| P["Program (astroam-escrow)"]
+    P -->|"claim / close: used amount"| Y["Payee"]
+    P -->|"close / refund: the rest"| F
+```
+
+The API (`CONNECTIVITY_PROVIDER=citrus`) reads usage from Citrus and the meter signs the cumulative voucher. In the public demo the eSIM is a sample profile and Citrus is not called (see [What is real, and what is not](#what-is-real-and-what-is-not)). On-chain, only the program moves the vault.
+
+### 1. Who holds the keys today
+
+- **Payee and upgrade authority:** one key, `9NMAvdKGJibTUFW4mWRfVd4sZRpLNo3fQCQMqdrXXV89`. It is the payee in the program config and the upgrade authority on the program data account. No Squads multisig exists yet.
+- **Meter key:** a separate key, `3WqaNhVVCCnabBLGA9YWviQHDvo6fTmX1Y9otcmsdB7k`, stored in the config at `initialize`. Its private key (`meter.json`) is not in the repo; the API needs it to sign vouchers.
+- The private keys are held by a team member, and Ignacio holds the deployer key (as stated in [Custody and key details](#custody-and-key-details)).
+- The program has no operator field. Anyone with SOL can pay the fees of `checkpoint`, `claim`, `close`, and `refund`.
+
+### 2. If the meter key leaks, and how to audit an over-reported reading
+
+What an attacker holding the meter key can do: sign a voucher for any open escrow of this program and submit it (the voucher binds the program id and escrow id, so it does not replay on another escrow). The amount can be anything between what was already attested and the deposit. It cannot name a recipient, because the payee is fixed at `initialize` and no instruction changes it. So the damage is bounded: a traveler can lose up to the deposit of an open escrow, paid to the configured payee, not to the attacker. Amounts already claimed or checkpointed cannot be lowered. The program does not read carrier usage, so it cannot tell a true reading from a false one. There is no instruction to change the meter key; a rotation needs a new deployment or an upgrade.
+
+How to audit a reading that over-reports:
+
+1. The signed message `AstroAmEscrow:v1:close || program id || escrow id || amount` is part of the `checkpoint`, `claim`, and `close` transactions, so the attested amount is public on the explorer.
+2. Compare it with the usage Citrus reports for that eSIM. The meter derives its number from the USD that Citrus charged (`docs/decisions/metering-with-provider.md`). We trust the provider's numbers there.
+3. The reconciliation job (`src/jobs/reconciliation.ts`) compares Citrus' charged amount against the funded wallet and records the drift. It is diagnostic only and does not read the chain, so it does not by itself flag an over-reporting voucher.
+4. An attested amount that is not backed by Citrus usage is evidence that the meter key was misused. The program offers no on-chain dispute; the remedy is off-chain.
+
+### 3. Limits the program enforces
+
+- **Cap at the deposit.** The cumulative amount must be at most the deposit (`ERR_AMOUNT_EXCEEDS`) and at least what was already claimed (`ERR_BELOW_CLAIMED`). `close` also rejects an amount below the last checkpoint (`ERR_BELOW_ATTESTED`). There is no program-wide maximum deposit in the code; the cap is per escrow.
+- **Public ed25519 vouchers.** `checkpoint`, `claim`, and `close` require the previous instruction to be an ed25519 verification, signed by the meter pubkey in the config, of the voucher message above. Vouchers from the traveler, the session key, or the payee are rejected (`ERR_BAD_VOUCHER`).
+- **Timeout anyone can execute.** `refund` needs only a fee payer, no traveler or meter signature. It runs after `timeout` seconds from the last deposit, top-up, or claim (604800 s, 7 days, on this config). It pays `attested − claimed` to the payee and `deposit − attested` to the traveler, using the amount already stored.
+- **Fixed destinations.** USDC leaves the vault only through `claim`, `close`, and `refund`, to the payee and the traveler.
+
+### 4. What the Squads multisig would change
+
+Planned, not done:
+
+- The upgrade authority and the payee would move to a 2-of-3 Squads multisig (Franco Durán, Ignacio Martín, Daniel Palermo). Upgrading the program would then need 2 of 3 signers, and settled USDC would go to the multisig treasury.
+- The payee is fixed at `initialize` and there is no `set_payee`, so a multisig payee needs a new deployment, or a sweep of USDC the current payee already received. The upgrade authority alone moves with `solana program set-upgrade-authority` (commands in [Custody and key details](#custody-and-key-details)).
+- It would **not** change the meter key, which stays a separate signer and still needs a new deployment or an upgrade to rotate. It would not make the vouchers more truthful. And an upgrade can still change the program's rules until upgrades are frozen or put behind a timelock, which is only "consider before mainnet".
 
 ## Try it in 5 minutes
 
@@ -526,7 +575,7 @@ Left out of both sides: the $1.75 issue fee, and the card's 30% percepción. Thi
 ## Roadmap
 
 1. **Issue a real eSIM from the flow and close 10 sessions with travelers on a real trip.** Owner: Joel. The first real eSIM was issued and closed on 2026-10-09 ([docs/real-esim.md](docs/real-esim.md#run-of-2026-10-09)). What is left is the 10 sessions with travelers.
-2. Move the upgrade authority and the payee to a 2-of-3 Squads multisig. Owner: Ignacio, who holds the deployer key. What that changes, and what is still trusted today: [Custody and trust model](#custody-and-trust-model).
+2. Move the upgrade authority and the payee to a 2-of-3 Squads multisig. Owner: Ignacio, who holds the deployer key. What that changes, and what is still trusted today: [Trust model](#trust-model) and [Custody and key details](#custody-and-key-details).
 3. Return the escrow and vault rent to the traveler at `close`.
 4. Legal review of the draft terms, including the refund rule and the Argentine right of withdrawal (botón de arrepentimiento), then publish a contact for that request.
 5. Bridge liquidation address for collected USDC, only after the provider account exists. See `docs/decisions/automate-fund-flow-citrus-bridge.md`.
